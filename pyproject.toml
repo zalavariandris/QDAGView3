@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "QDAGView2"
+version = "0.1.0"
+authors = [
+    { name = "András Zalavári", email = "zalavariandris@gmail.com" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "qtpy",
+    "pyqt6", # Todo: can we move to pyside6?
+    "networkx",
+    "bidict"
+]
+
+[tool.setuptools]
+packages = [
+    "qdagview3"
+]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["__pycache__/*", ".venv_/*"]
+
