@@ -47,7 +47,7 @@ class MainWindow(QMainWindow):
         inlet = self.nodes_model.index(0, 0, node2)
         self.nodes_model.setData(inlet, "Inlet", Qt.EditRole)
         self.nodes_model.setData(node2, "Node 2", Qt.EditRole)
-        self.link_model.add_link(outlet, inlet)
+        self.link_model.add_link(outlet, node2)
         
 
         delegate = TreeGraphDelegate()

@@ -11,7 +11,7 @@ class LinkData:
     source: QPersistentModelIndex
     target: QPersistentModelIndex
 
-    def _post_init__(self):
+    def __post_init__(self):
         if not self.source.isValid():
             raise ValueError(f"Source index must be valid, got: {self.source}")
         if not self.target.isValid():
@@ -25,8 +25,8 @@ class LinkModel(QAbstractItemModel):
     Column 1 stores the target row index (persisted as QPersistentModelIndex).
     """
 
-    SourceIndexRole = int(Qt.UserRole) + 1
-    TargetIndexRole = int(Qt.UserRole) + 2
+    SourceIndexRole = int(Qt.ItemDataRole.UserRole) + 1
+    TargetIndexRole = int(Qt.ItemDataRole.UserRole) + 2
 
     def __init__(self, nodes_model: QAbstractItemModel, parent=None) -> None:
         super().__init__(parent)
@@ -53,7 +53,7 @@ class LinkModel(QAbstractItemModel):
         del parent
         return 2
 
-    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
         if not (0 <= index.row() < len(self._links)):
@@ -75,10 +75,10 @@ class LinkModel(QAbstractItemModel):
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
         if not index.isValid():
-            return Qt.ItemIsEnabled
-        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+            return Qt.ItemFlag.ItemIsEnabled
+        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
 
-    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole):
         if orientation != Qt.Horizontal or role != Qt.DisplayRole:
             return None
         if 0 <= section < len(self._headers):
