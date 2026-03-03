@@ -258,10 +258,10 @@ def getShapeCenter(shape: QPointF | QRectF | QPainterPath | QGraphicsItem)->QPoi
     which can be a QPointF, QRectF, QPainterPath, or QGraphicsItem.
     """
     match shape:
-        case QPointF():
-            return shape
-        case QRectF():
-            return shape.center()
+        case QPointF() | QPoint():
+            return QPointF(shape)
+        case QRectF() | QRect():
+            return QPointF(shape.center())
         case QPainterPath():
             return shape.boundingRect().center()
         case QGraphicsItem():
@@ -281,10 +281,10 @@ def makeLineToShape(
 
     center = getShapeCenter(shape)
     match shape:
-        case QPointF():
-            intersection = center
+        case QPointF()|QPoint():
+            intersection = QPointF(center)
 
-        case QRectF():
+        case QRectF() | QRect():
             rect = shape
             V = center - origin
             if xy := intersect_ray_with_rectangle(
@@ -297,7 +297,7 @@ def makeLineToShape(
             ):
                 intersection = QPointF(*xy)
             else:
-                intersection = center
+                intersection = QPointF(center)
 
         case QPainterPath():
             if P := intersect_line_with_path(
@@ -306,6 +306,7 @@ def makeLineToShape(
                 intersection = P
             else:
                 intersection = center
+                
         case QGraphicsItem():
             sceneShape = shape.sceneTransform().map(shape.shape())
             if P := intersect_line_with_path(

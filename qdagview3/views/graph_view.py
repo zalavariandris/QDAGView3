@@ -33,9 +33,9 @@ from qdagview3.views.delegates.tree_graph_delegate import TreeGraphDelegate
 # from qdagview2.views.delegates.abstract_graph_widget_factory import AbstractGraphWidgetFactory #TODO: merge into delegate
 # from qdagview2.views.delegates.graph_widget_factory import GraphWidgetFactory #TODO: merge into delegate
 
-from qdagview3.views.widgets.node_widget import NodeWidget
-from qdagview3.views.widgets.port_widget import InletWidget, OutletWidget
-from qdagview3.views.widgets.link_widget import LinkWidgetStraight as LinkWidget
+# from qdagview3.views.widgets.node_widget import NodeWidget
+# from qdagview3.views.widgets.port_widget import InletWidget, OutletWidget
+# from qdagview3.views.widgets.link_widget import LinkWidgetStraight as LinkWidget
 from qdagview3.views.widgets.cell_widget import CellWidget
 
 from qdagview3.views.utils.qt import blockingSignals
@@ -68,13 +68,17 @@ class GraphView(QGraphicsView):
         self._node_selection_connections: list[tuple[Signal, Callable]] = []
 
         ## State of the graph view
-        self._linking_tool = LinkingTool(self)
+        # self._linking_tool = LinkingTool(self)
+        self._interaction_mode: Literal[None, "LINKING"] = None
+        self._interaction_payload: Tuple[Any, Literal['outlet', 'inlet', 'tail', 'head']] = None
+        self._draft_link = None
 
         self._delegate = delegate if delegate else TreeGraphDelegate()
         self._delegate.portPositionChanged.connect(self.handlePortPositionChanged)
 
         # Widget Managers
         self._row_widget_manager = PersistentIndexWidgetManager()
+        self._link_widget_manager = PersistentIndexWidgetManager()
         self._cell_widget_manager = PersistentIndexWidgetManager()
 
         # setup the view
@@ -140,19 +144,17 @@ class GraphView(QGraphicsView):
             self._links_model_connections = links_model_connections
             self._links_model = link_model
 
-        # Set the controller for the linking tool
-        self._linking_tool.setController(link_model)
-
         # populate initial scene
         ## clear
         scene = self.scene()
         assert scene
         scene.clear()
         self._row_widget_manager.clear()
+        self._link_widget_manager.clear()
         self._cell_widget_manager.clear()
 
         self.handleNodesInserted(QModelIndex(), 0, self._links_model.nodesModel().rowCount(QModelIndex()) - 1)
-
+        self.handleLinksInserted(QModelIndex(), 0, self._links_model.rowCount(QModelIndex()) - 1)
     ## Handle model changes / Manage widget lifecycle        
     def handleNodesInserted(self, parent:QModelIndex, first: int, last: int):
         assert self._links_model, "Model must be set before handling node insertions!"
@@ -296,11 +298,42 @@ class GraphView(QGraphicsView):
     #         assert w is not None, f"Failed to create widget for inlet index: {inlet_index}"
     #         self.handleAttributesInserted(self._links_model.attributes(inlet_index))
 
-    def handleLinksInserted(self, link_indexes:List[QPersistentModelIndex]):
-        for link_index in link_indexes:
-            w = self._addLinkWidgetForIndex(link_index)
-            assert w is not None, f"Failed to create widget for link index: {link_index}"
-            self.handleAttributesInserted(self._links_model.attributes(link_index))
+    def handleLinksInserted(self, parent:QModelIndex, first: int, last: int):
+        assert self._links_model, "Model must be set before handling node insertions!"
+        nodes_model = self._links_model.nodesModel()
+        assert nodes_model is not None, "Link model must have a valid nodes model"
+
+        for row in range(first, last + 1):
+            link_index = self._links_model.index(row, 0, parent)
+            assert link_index.isValid(), f"Invalid link index: {link_index}"
+            source_index = self._links_model.linkSource(link_index)
+            assert isinstance(source_index, QModelIndex) and source_index.isValid(), f"Invalid source index for link, got: {source_index}"
+            target_index = self._links_model.linkTarget(link_index)
+            assert isinstance(target_index, QModelIndex) and target_index.isValid(), f"Invalid target index for link, got: {target_index}"
+            source_widget = self._row_widget_manager.getWidget(source_index)
+            target_widget = self._row_widget_manager.getWidget(target_index)
+            link_widget = self._delegate.createLinkWidget(link_index, source_widget, target_widget)
+            self._link_widget_manager.insertWidget(link_index, link_widget)
+            self._delegate.moveLinkWidget(link_widget, source_widget, target_widget)
+
+    def handleLinksAboutToBeRemoved(self, parent:QModelIndex, first: int, last: int):
+        assert self._links_model, "Model must be set before handling node insertions!"
+        nodes_model = self._links_model.nodesModel()
+        assert nodes_model is not None, "Link model must have a valid nodes model"
+
+        for row in range(first, last + 1):
+            link_index = self._links_model.index(row, 0, parent)
+            assert link_index.isValid(), f"Invalid link index: {link_index}"
+            link_widget = self._link_widget_manager.getWidget(link_index)
+            if link_widget is None:
+                continue
+
+            source_index = self._links_model.linkSource(link_index)
+            target_index = self._links_model.linkTarget(link_index)
+            source_widget = self._row_widget_manager.getWidget(source_index) if source_index.isValid() else None
+            target_widget = self._row_widget_manager.getWidget(target_index) if target_index.isValid() else None
+            self._delegate.destroyLinkWidget(link_widget, source_widget, target_widget)
+            self._link_widget_manager.removeWidget(link_index)
 
     # def handleAttributesInserted(self, attributes:List[QPersistentModelIndex]):
     #     for attribute in attributes:
@@ -327,10 +360,6 @@ class GraphView(QGraphicsView):
     #             self._removeLinkWidgetForIndex(link)
     #         self._removeOutletWidgetForIndex(outlet_index)
 
-    def handleLinksAboutToBeRemoved(self, link_indexes:List[QPersistentModelIndex]):
-        for link_index in link_indexes:
-            self.handleAttributesRemoved(self._links_model.attributes(link_index))
-            self._removeLinkWidgetForIndex(link_index)
 
     # def handleAttributesRemoved(self, attributes:List[QPersistentModelIndex]):
     #     for attribute in reversed(attributes):
@@ -342,17 +371,26 @@ class GraphView(QGraphicsView):
     #     return self._item_model
     
     ## Index lookup
-    def rowAt(self, point:QPoint, filter_type:GraphItemType|None=None) -> GraphT|NodeT|PortT|LinkT|None:
+    def rowAt(self, point:QPoint, filter_type:GraphItemType|None=None) -> QModelIndex|None:
         all_widgets = set(self._row_widget_manager.widgets())
-        for item in self.items(point):
-            if item in all_widgets:
-                index = self._row_widget_manager.getIndex(item)
+        assert isinstance(point, QPoint), f"Expected point of type QPoint, got: {type(point)}"
+        for row_widget in self.items(point):
+            if row_widget in all_widgets:
+                index = self._row_widget_manager.getIndex(row_widget)
                 if filter_type is None:
                     return index
                 else:
                     if self._links_model.itemType(index) == filter_type:
                         return index
         return None
+    
+    def linkAt(self, point:QPoint) -> QModelIndex|None:
+        all_widgets = set(self._link_widget_manager.widgets())
+        for link_widget in self.items(point):
+            if link_widget in all_widgets:
+                return self._link_widget_manager.getIndex(link_widget)
+        return None
+
     
     def attributeAt(self, point:QPoint) -> AttributeRef|None:
         """
@@ -368,15 +406,16 @@ class GraphView(QGraphicsView):
     def handlePortPositionChanged(self, port_index:PortT):
         """Reposition all links connected to the moved port widget."""
         assert self._links_model, "Model must be set before handling port position changes!"
-        link_indexes = self._links_model.links(port_index)
+        link_indexes = self._links_model.links_connected_to(port_index)
+        print(f"Port index {port_index} position changed, updating connected links: {link_indexes}")
         for link_index in link_indexes:
-            if link_widget := self._row_widget_manager.getWidget(link_index):
+            if link_widget := self._link_widget_manager.getWidget(link_index):
                 source_index = self._links_model.linkSource(link_index)
                 source_widget = self._row_widget_manager.getWidget(source_index)
                 target_index = self._links_model.linkTarget(link_index)
                 target_widget = self._row_widget_manager.getWidget(target_index)
                 if source_widget and target_widget:
-                    self._update_link_position(link_widget, source_widget, target_widget)
+                    self._delegate.moveLinkWidget(link_widget, source_widget, target_widget)
 
     def _update_link_position(self, link_widget:LinkWidgetStraight, source_widget:QGraphicsItem|None=None, target_widget:QGraphicsItem|None=None):
         # Compute the link geometry in the link widget's local coordinates.
@@ -677,40 +716,223 @@ class GraphView(QGraphicsView):
         if starting a link is not possible, fallback to the QGraphicsView behavior.
         """
 
-        if self._linking_tool.isActive():
-            # If we are already linking, cancel the linking operation
-            self._linking_tool.cancelLinking()
-            return
+        # if self._linking_tool.isActive():
+        #     # If we are already linking, cancel the linking operation
+        #     self._linking_tool.cancelLinking()
+        #     return
 
         # get the index at the mouse position
         pos = event.position()
-        index = self.rowAt(QPoint(int(pos.x()), int(pos.y())))
         scene_pos = self.mapToScene(event.position().toPoint())
-        row_widget = self._row_widget_manager.getWidget(index)
-        print(f"Mouse press at position: {event.position()}, scene position: {scene_pos}, index: {index}, row widget: {row_widget}")
-        # If we can start linking, do so
-        if index and self._delegate.canStartLink(row_widget, index, event):
-            self._linking_tool.startLinking(index, scene_pos)
+
+        
+        link_index = self.linkAt(QPoint(int(pos.x()), int(pos.y())))
+        if link_index and link_index.isValid():
+            # link interaction
+            # - relink -
+            link_widget = self._link_widget_manager.getWidget(link_index)
+            local_pos = link_widget.mapFromScene(scene_pos)  # Ensure scene_pos is in the correct coordinate system
+            tail_distance = (local_pos-link_widget.line().p1()).manhattanLength()
+            head_distance = (local_pos-link_widget.line().p2()).manhattanLength()
+
+            payload_type = 'head' if head_distance < tail_distance else 'tail'
+            self._interaction_payload = link_index, payload_type
+            self._interaction_mode = "LINKING"
+            return
         else:
-            # Fallback to default behavior
-            super().mousePressEvent(event)
+            # row interaction
+            # start link
+            row_index = self.rowAt(QPoint(int(pos.x()), int(pos.y())))
+            
+            row_widget = self._row_widget_manager.getWidget(row_index)
+
+            if row_index and self._delegate.canStartLink(row_widget, row_index, event):
+                self._interaction_mode = "LINKING"
+                self._interaction_payload = (row_index, 'outlet')  # TODO: determine if it's an inlet or outlet based on the position of the click
+                self._draft_link = self._delegate.createLinkWidget(None, row_widget, None)
+            else:
+                # Fallback to default behavior
+                super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self._linking_tool.isActive():
-            pos = QPoint(int(event.position().x()), int(event.position().y())) # Ensure pos is in integer coordinates
-            self._linking_tool.updateLinking(pos)
-        else:
-            super().mouseMoveEvent(event)
+        view_pos = QPoint(int(event.position().x()), int(event.position().y()))
+        scene_pos = self.mapToScene(QPoint(int(view_pos.x()), int(view_pos.y())))
+        match self._interaction_mode:
+            case "LINKING":
+                payload_index, payload_type = self._interaction_payload
+                match payload_type:
+                    case 'head':
+                        link_widget = self._link_widget_manager.getWidget(payload_index)
+                        source_index = self._links_model.linkSource(payload_index)
+                        source_widget = self._row_widget_manager.getWidget(source_index) if source_index is not None else None
+                        
+                        self._delegate.moveLinkWidget(link_widget, source_widget, scene_pos)
+
+                    case 'tail':
+                        link_widget = self._link_widget_manager.getWidget(payload_index)
+                        target_index = self._links_model.linkTarget(payload_index)
+                        target_widget = self._row_widget_manager.getWidget(target_index) if target_index is not None else None
+
+                        self._delegate.moveLinkWidget(link_widget, scene_pos, target_widget)
+
+                    case 'outlet':
+                        end_index = self.rowAt(view_pos)  # Ensure the index is updated
+                        end_widget = self._row_widget_manager.getWidget(end_index) #TODO: consider using invalid QModelIndex instead of None?
+                        
+                        start_widget = self._row_widget_manager.getWidget(payload_index)
+                        if end_index and end_index.isValid() and self._delegate.canAcceptLink(start_widget, end_widget, payload_index, end_index): # TODO: add option for snap behaviour
+                            self._delegate.moveLinkWidget(self._draft_link, start_widget, end_widget)
+                        else:
+                            self._delegate.moveLinkWidget(self._draft_link, start_widget, scene_pos)
+
+                    case 'inlet':
+                        ...
+
+                    case _:
+                        ...
+
+            case _:
+                super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._linking_tool.isActive():
-            pos = QPoint(int(event.position().x()), int(event.position().y())) # Ensure pos is in integer coordinates
-            drop_target = self.rowAt(pos)  # Ensure the index is updated
-            if not self._linking_tool.finishLinking(drop_target):
-                # Handle failed linking
-                logger.warning("WARNING: Linking failed!")
-        else:
+        if self._interaction_mode != "LINKING":
             super().mouseReleaseEvent(event)
+            return
+
+        assert self._links_model, "Model must be set before handling mouse release!"
+
+        def reset_linking_state() -> None:
+            self._interaction_mode = None
+            self._interaction_payload = None
+
+        def destroy_draft_link(start_widget, end_widget) -> None:
+            if self._draft_link is not None:
+                if start_widget is None and end_widget is None:
+                    if scene := self._draft_link.scene():
+                        scene.removeItem(self._draft_link)
+                else:
+                    self._delegate.destroyLinkWidget(self._draft_link, start_widget, end_widget)
+                self._draft_link = None
+
+        if not self._interaction_payload:
+            reset_linking_state()
+            return
+
+        payload_index, payload_type = self._interaction_payload
+        view_pos = QPoint(int(event.position().x()), int(event.position().y()))
+        drop_index = self.rowAt(view_pos)
+
+        match payload_type:
+            case 'outlet':
+                start_index = payload_index
+                start_widget = self._row_widget_manager.getWidget(start_index)
+                end_index = drop_index if drop_index and drop_index.isValid() else None
+                end_widget = self._row_widget_manager.getWidget(end_index) if end_index else None
+
+                can_link = bool(
+                    end_index
+                    and self._delegate.canAcceptLink(start_widget, end_widget, start_index, end_index)
+                )
+                destroy_draft_link(start_widget, end_widget)
+                reset_linking_state()
+                if can_link:
+                    self._links_model.add_link(start_index, end_index)
+                return
+
+            case 'inlet':
+                end_index = payload_index
+                end_widget = self._row_widget_manager.getWidget(end_index)
+                start_index = drop_index if drop_index and drop_index.isValid() else None
+                start_widget = self._row_widget_manager.getWidget(start_index) if start_index else None
+
+                can_link = bool(
+                    start_index
+                    and self._delegate.canAcceptLink(start_widget, end_widget, start_index, end_index)
+                )
+                destroy_draft_link(start_widget, end_widget)
+                reset_linking_state()
+                if can_link:
+                    self._links_model.add_link(start_index, end_index)
+                return
+
+            case 'head':
+                link_index = payload_index
+                if not link_index or not link_index.isValid():
+                    reset_linking_state()
+                    return
+
+                row = link_index.row()
+                source_index = self._links_model.linkSource(link_index)
+                prev_target_index = self._links_model.linkTarget(link_index)
+                link_widget = self._link_widget_manager.getWidget(link_index)
+                source_widget = self._row_widget_manager.getWidget(source_index)
+                prev_target_widget = self._row_widget_manager.getWidget(prev_target_index)
+
+                if not link_widget:
+                    reset_linking_state()
+                    return
+
+                if not drop_index or not drop_index.isValid():
+                    self._links_model.remove_link(row)
+                    reset_linking_state()
+                    return
+
+                new_target_index = drop_index
+                if new_target_index == prev_target_index:
+                    self._delegate.moveLinkWidget(link_widget, source_widget, prev_target_widget)
+                    reset_linking_state()
+                    return
+
+                new_target_widget = self._row_widget_manager.getWidget(new_target_index)
+                if self._delegate.canAcceptLink(source_widget, new_target_widget, source_index, new_target_index):
+                    self._links_model.set_link(row, source_index, new_target_index)
+                    self._delegate.moveLinkWidget(link_widget, source_widget, new_target_widget)
+                else:
+                    self._delegate.moveLinkWidget(link_widget, source_widget, prev_target_widget)
+                reset_linking_state()
+                return
+
+            case 'tail':
+                link_index = payload_index
+                if not link_index or not link_index.isValid():
+                    reset_linking_state()
+                    return
+
+                row = link_index.row()
+                prev_source_index = self._links_model.linkSource(link_index)
+                target_index = self._links_model.linkTarget(link_index)
+                link_widget = self._link_widget_manager.getWidget(link_index)
+                prev_source_widget = self._row_widget_manager.getWidget(prev_source_index)
+                target_widget = self._row_widget_manager.getWidget(target_index)
+
+                if not link_widget:
+                    reset_linking_state()
+                    return
+
+                if not drop_index or not drop_index.isValid():
+                    self._links_model.remove_link(row)
+                    reset_linking_state()
+                    return
+
+                new_source_index = drop_index
+                if new_source_index == prev_source_index:
+                    self._delegate.moveLinkWidget(link_widget, prev_source_widget, target_widget)
+                    reset_linking_state()
+                    return
+
+                new_source_widget = self._row_widget_manager.getWidget(new_source_index)
+                if self._delegate.canAcceptLink(new_source_widget, target_widget, new_source_index, target_index):
+                    self._links_model.set_link(row, new_source_index, target_index)
+                    self._delegate.moveLinkWidget(link_widget, new_source_widget, target_widget)
+                else:
+                    self._delegate.moveLinkWidget(link_widget, prev_source_widget, target_widget)
+                reset_linking_state()
+                return
+
+            case _:
+                reset_linking_state()
+                return
+
 
     def mouseDoubleClickEvent(self, event:QMouseEvent):
         assert self._links_model, "Model must be set before handling double click!"

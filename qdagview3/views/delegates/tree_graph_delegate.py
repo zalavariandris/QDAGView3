@@ -15,145 +15,13 @@ from qtpy.QtWidgets import *
 
 
 from qdagview3.views.widgets.link_widget import LinkWidgetStraight as LinkWidget
+from qdagview3.views.utils.geo import makeLineBetweenShapes
 
 if TYPE_CHECKING:
     from qdagview3.views.graph_view import GraphView
 
-
-class CellWidget(QGraphicsWidget):
-    _PADDING = (8, 2)
-
-    def __init__(self, parent: QGraphicsItem|None=None):
-        super().__init__(parent)
-        self._text:str = ""
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-
-    def _contentSize(self) -> QSizeF:
-        fm = QFontMetrics(self.font())
-        text_rect = fm.boundingRect(self._text)
-        return QSizeF(
-            float(text_rect.width() + self._PADDING[0] * 2),
-            float(text_rect.height() + self._PADDING[1] * 2),
-        )
-
-    def setText(self, text:str):
-        assert isinstance(text, str)
-        if self._text == text:
-            return
-        self._text = text
-        self.prepareGeometryChange()
-        self.updateGeometry()
-        self.update()
-
-    def text(self) -> str:
-        return f"{self._text}"
-
-    def sizeHint(self, which: Qt.SizeHint, constraint: QSizeF = QSizeF()) -> QSizeF:
-        size = self._contentSize()
-        if which in (Qt.SizeHint.MinimumSize, Qt.SizeHint.PreferredSize, Qt.SizeHint.MaximumSize):
-            return size
-        return super().sizeHint(which, constraint)
-
-    def boundingRect(self) -> QRectF:
-        size = self._contentSize()
-        return QRectF(0, 0, size.width(), size.height())
-
-    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = ...) -> None:
-        rect = self.boundingRect()
-        scene = self.scene()
-        if scene is None:
-            return
-        palette = scene.palette()
-        painter.setPen(QPen(palette.text(), 1))
-        painter.setBrush(palette.base())
-        painter.drawRoundedRect(rect, 5, 5)
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._text)
-        super().paint(painter, option, widget)
-
-
-class RowWidget(QGraphicsWidget):
-    def __init__(self, parent: QGraphicsItem|None=None):
-        layout = QGraphicsLinearLayout(Qt.Orientation.Vertical)
-        layout.setContentsMargins(4,4,4,4)
-        layout.setSpacing(2)
-        self._header = QGraphicsWidget()
-        self._header.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._header.setLayout(QGraphicsLinearLayout(Qt.Orientation.Horizontal))
-        self._header.layout().setContentsMargins(0,0,0,0)
-        self._header.layout().setSpacing(2)
-        self._body = QGraphicsWidget()
-        self._body.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self._body.setLayout(QGraphicsLinearLayout(Qt.Orientation.Vertical))
-        self._body.layout().setContentsMargins(0,0,0,0)
-        self._body.layout().setSpacing(2)
-        layout.addItem(self._header)
-        layout.addItem(self._body)
-        super().__init__(parent)
-        self.setLayout(layout)
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-
-    def _refreshLayout(self) -> None:
-        layout = self.layout()
-        if isinstance(layout, QGraphicsLayout):
-            layout.invalidate()
-            layout.activate()
-        self.prepareGeometryChange()
-        self.updateGeometry()
-        self.update()
-        parent = self.parentItem()
-        if isinstance(parent, QGraphicsWidget):
-            parent.updateGeometry()
-
-    def sizeHint(self, which: Qt.SizeHint, constraint: QSizeF = QSizeF()) -> QSizeF:
-        layout = self.layout()
-        if isinstance(layout, QGraphicsLayout):
-            size = layout.effectiveSizeHint(which, constraint)
-            if which in (Qt.SizeHint.MinimumSize, Qt.SizeHint.PreferredSize, Qt.SizeHint.MaximumSize):
-                return size
-        return super().sizeHint(which, constraint)
-
-    def boundingRect(self) -> QRectF:
-        size = self.sizeHint(Qt.SizeHint.PreferredSize)
-        return QRectF(0, 0, size.width(), size.height())
-    
-    def paint(self, painter: QPainter, option: QStyleOption, widget=None):
-        rect = self.boundingRect()
-        
-        scene = self.scene()
-        if scene is None:
-            return
-        palette = scene.palette()
-        painter.setBrush(palette.alternateBase())
-        if self.isSelected():
-            painter.setBrush(palette.highlight())
-
-        painter.drawRoundedRect(rect, 6, 6)
-
-    def insertCell(self, pos:int, cell:CellWidget):
-        assert isinstance(cell, CellWidget)
-        header_layout = cast(QGraphicsLinearLayout, self._header.layout())
-        header_layout.insertItem(pos, cell)
-        self._refreshLayout()
-
-    def removeCell(self, cell:CellWidget):
-        assert isinstance(cell, CellWidget)
-        header_layout = cast(QGraphicsLinearLayout, self._header.layout())
-        header_layout.removeItem(cell)
-        cell.setParentItem(None)
-        self._refreshLayout()
-
-    def insertChildRow(self, pos:int, child:RowWidget):
-        assert isinstance(child, RowWidget)
-        body_layout = cast(QGraphicsLinearLayout, self._body.layout())
-        body_layout.insertItem(pos, child)
-        self._refreshLayout()
-
-    def removeChildRow(self, child:RowWidget):
-        assert isinstance(child, RowWidget) 
-        body_layout = cast(QGraphicsLinearLayout, self._body.layout())
-        body_layout.removeItem(child)
-        child.setParentItem(None)
-        self._refreshLayout()
+from qdagview3.views.widgets.cell_widget import CellWidget
+from qdagview3.views.widgets.row_widget import RowWidget
 
 
 class TreeGraphDelegate(QObject):
@@ -166,11 +34,16 @@ class TreeGraphDelegate(QObject):
         # if not index.isValid():
         #     raise ValueError("Index must be valid")
         
-        widget = RowWidget()        
+        widget = RowWidget()
+        def onScenePositionChanged(pos, idx=QPersistentModelIndex(index)):
+            print(f"Scene position of port widget for index {idx} {idx.data(Qt.ItemDataRole.DisplayRole)} changed to {pos}")
+            self.portPositionChanged.emit(QModelIndex(idx))
+        widget.scenePositionChanged.connect(onScenePositionChanged)
+        widget.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges, True)
         match parent_widget:
             case QGraphicsScene():
                 widget.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-                widget.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges, True)
+                
                 widget.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
                 parent_widget.addItem(widget)
 
@@ -180,6 +53,7 @@ class TreeGraphDelegate(QObject):
 
             case _:
                 raise TypeError("Parent widget must be a QGraphicsScene or RowWidget")
+        
         return widget
 
     def destroyRowWidget(self, parent_widget: QGraphicsScene, widget: RowWidget)->bool:
@@ -216,33 +90,45 @@ class TreeGraphDelegate(QObject):
         widget.deleteLater()
         return True
 
-    def createLinkWidget(self, source_widget:RowWidget, target_widget:RowWidget, index: QModelIndex) -> LinkWidget:
+    def createLinkWidget(self, link_index: QModelIndex|None, source_widget:RowWidget|None, target_widget:RowWidget|None, ) -> LinkWidget:
         """Create a link widget. Links are added directly to the scene."""
-        if not isinstance(source_widget, QGraphicsItem):
-            raise TypeError("source_widget must be a QGraphicsItem")
-        if not isinstance(target_widget, QGraphicsItem):
-            raise TypeError("target_widget must be a QGraphicsItem")
+        if not isinstance(source_widget, (QGraphicsItem, type(None))):
+            raise TypeError("source_widget must be a QGraphicsItem or None")
+        if not isinstance(target_widget, (QGraphicsItem, type(None))):
+            raise TypeError("target_widget must be a QGraphicsItem or None")
         
-        scene = source_widget.scene()
-        if scene is None or scene != target_widget.scene():
-            raise ValueError("source_widget and target_widget must be in the same scene")
+        assert not (source_widget is None and target_widget is None), "At least one of source_widget or target_widget must be provided"
+        
+        scene = source_widget.scene() or target_widget.scene()
+        assert scene is not None, "At least one of the widgets must be in a scene"
+        if source_widget and target_widget:
+            assert source_widget.scene() == target_widget.scene(), "source_widget and target_widget must be in the same scene"
 
         link_widget = LinkWidget()
         scene.addItem(link_widget)  # Links are added to the scene, not to the inlet widget
         return link_widget
     
-    def destroyLinkWidget(self, source_widget:RowWidget, target_widget:RowWidget, widget: LinkWidget)->bool:
-        if not isinstance(source_widget, QGraphicsItem):
-            raise TypeError("source_widget must be a QGraphicsItem")
-        if not isinstance(target_widget, QGraphicsItem):
-            raise TypeError("target_widget must be a QGraphicsItem")
-        if not isinstance(widget, LinkWidget):
+    def moveLinkWidget(self, link_widget: LinkWidget, start_widget: QGraphicsItem|QPointF, end_widget: QGraphicsItem|QPointF):
+        if not isinstance(link_widget, LinkWidget):
             raise TypeError("Widget must be a LinkWidget")
         
-        widget.setParentItem(None)  # Remove from any parent item
-        scene = source_widget.scene()
+        print(f"Moving link widget between {start_widget} and {end_widget}")
+        
+        line = QLineF(makeLineBetweenShapes(start_widget, end_widget))
+        link_widget.setLine(line)
+    
+    def destroyLinkWidget(self, link_widget: LinkWidget, source_widget:RowWidget|None, target_widget:RowWidget|None)->bool:
+        if not isinstance(source_widget, (QGraphicsItem, type(None))):
+            raise TypeError(f"source_widget must be a QGraphicsItem or None, got {type(source_widget)} instead")
+        if not isinstance(target_widget, (QGraphicsItem, type(None))):
+            raise TypeError(f"target_widget must be a QGraphicsItem or None, got {type(target_widget)} instead")
+        if not isinstance(link_widget, LinkWidget):
+            raise TypeError(f"Widget must be a LinkWidget, got {type(link_widget)} instead")
+        
+        link_widget.setParentItem(None)  # Remove from any parent item
+        scene = source_widget.scene() if source_widget else target_widget.scene()
         if scene is not None:
-            scene.removeItem(widget)
+            scene.removeItem(link_widget)
         # Schedule widget for deletion to prevent memory leaks TODO:
         # widget.deleteLater()
         return True

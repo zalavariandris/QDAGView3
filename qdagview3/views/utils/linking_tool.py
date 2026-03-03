@@ -48,7 +48,7 @@ class LinkingTool:
     def isActive(self) -> bool:
         return self._is_active
 
-    def startLinking(self, index: QModelIndex, scene_pos: QPointF|None) -> bool:
+    def startLinking(self, start_index: QModelIndex, scene_pos: QPointF|None) -> bool:
         """
         Start linking from the given index.
         return True if the drag operation was started, False otherwise.
@@ -63,7 +63,7 @@ class LinkingTool:
             self._draft_link = LinkWidgetStraight()
             self._view.scene().addItem(self._draft_link)
 
-        self._linking_payload = Payload(index, 'inlet')
+        self._linking_payload = Payload(start_index, 'inlet')
         self._is_active = True
         return True
         
@@ -238,7 +238,7 @@ class LinkingTool:
 
         # link_widget.setLine(line)
 
-    def finishLinking(self, target_index:QModelIndex|None)->bool:
+    def finishLinking(self, end_index:QModelIndex|None)->bool:
         """
         Finish linking operation.
         """

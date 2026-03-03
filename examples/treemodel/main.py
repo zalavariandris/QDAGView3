@@ -26,6 +26,7 @@ from qdagview3.models.standard_nodes_model import StandardNodesModel
 from qdagview3.views.graph_view import GraphView
 from qdagview3.views.delegates.tree_graph_delegate import TreeGraphDelegate
 
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -35,6 +36,19 @@ class MainWindow(QMainWindow):
         # - model -
         self.nodes_model = StandardNodesModel(self)
         self.link_model = LinkModel(self.nodes_model, self)
+        self.nodes_model.insertRows(0, 2, QModelIndex())
+        node1 = self.nodes_model.index(0, 0, QModelIndex())
+        self.nodes_model.setData(node1, "Node 1", Qt.EditRole)
+        self.nodes_model.insertRows(0, 1, node1)
+        outlet = self.nodes_model.index(0, 0, node1)
+        self.nodes_model.setData(outlet, "Outlet", Qt.EditRole)
+        node2 = self.nodes_model.index(1, 0, QModelIndex())
+        self.nodes_model.insertRows(0, 1, node2)
+        inlet = self.nodes_model.index(0, 0, node2)
+        self.nodes_model.setData(inlet, "Inlet", Qt.EditRole)
+        self.nodes_model.setData(node2, "Node 2", Qt.EditRole)
+        self.link_model.add_link(outlet, inlet)
+        
 
         delegate = TreeGraphDelegate()
         self.graph_view = GraphView(delegate=delegate, parent=self)
