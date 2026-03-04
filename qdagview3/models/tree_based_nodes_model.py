@@ -7,12 +7,12 @@ from qtpy.QtCore import QAbstractItemModel, QModelIndex, QObject, Qt
 
 
 @dataclass
-class StandardNodesItem:
+class TreeItem:
     values: List[str]
-    parent: Optional["StandardNodesItem"] = None
-    children: List["StandardNodesItem"] = field(default_factory=list)
+    parent: Optional["TreeItem"] = None
+    children: List["TreeItem"] = field(default_factory=list)
 
-    def child(self, row: int) -> Optional["StandardNodesItem"]:
+    def child(self, row: int) -> Optional["TreeItem"]:
         if 0 <= row < len(self.children):
             return self.children[row]
         return None
@@ -28,7 +28,7 @@ class StandardNodesItem:
             return 0
         return self.parent.children.index(self)
 
-    def insert_child(self, row: int, item: "StandardNodesItem") -> None:
+    def insert_child(self, row: int, item: "TreeItem") -> None:
         item.parent = self
         self.children.insert(row, item)
 
@@ -51,13 +51,13 @@ class StandardNodesItem:
             child.remove_column(column)
 
 
-class NodesTreeModel(QAbstractItemModel):
+class TreeBasedNodesModel(QAbstractItemModel):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._headers: List[str] = ["Column 1"]
-        self._root = StandardNodesItem(values=["Root"])
+        self._root = TreeItem(values=["Root"])
 
-    def itemFromIndex(self, index: QModelIndex) -> StandardNodesItem:
+    def itemFromIndex(self, index: QModelIndex) -> TreeItem:
         if index.isValid():
             return index.internalPointer()  # type: ignore[return-value]
         return self._root
@@ -164,7 +164,7 @@ class NodesTreeModel(QAbstractItemModel):
         for offset in range(count):
             item_row = row + offset + 1
             new_values = [f"Item {item_row}"] + ["" for _ in range(self.columnCount(parent) - 1)]
-            parent_item.insert_child(row + offset, StandardNodesItem(values=new_values, parent=parent_item))
+            parent_item.insert_child(row + offset, TreeItem(values=new_values, parent=parent_item))
         self.endInsertRows()
         return True
 

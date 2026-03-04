@@ -39,7 +39,7 @@ class NodeData:
     outlets: List[OutletData] = field(default_factory=list)
 
 
-class NodesPortsModel(QAbstractItemModel):
+class SocketBasedNodesModel(QAbstractItemModel):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._headers: List[str] = ["expression"]
@@ -69,7 +69,7 @@ class NodesPortsModel(QAbstractItemModel):
                     outlet = node.outlets[row - len(node.inlets)]
                     return self.createIndex(row, column, outlet)
             case InletData() | OutletData():
-                raise ValueError("Ports cannot have children")
+                raise ValueError("Sockets cannot have children")
             case _:
                 raise TypeError(f"Unexpected item type: {self.itemFromIndex(parent)}")
 
@@ -246,7 +246,7 @@ class NodesPortsModel(QAbstractItemModel):
                 return True
             
             case NodeData():
-                warnings.warn("Ports should be added using insertInlet and insertOutlet methods")
+                warnings.warn("Sockets should be added using insertInlet and insertOutlet methods")
                 return False
             case _:
                 return False

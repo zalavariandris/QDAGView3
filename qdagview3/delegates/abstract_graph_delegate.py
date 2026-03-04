@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Type
+from typing import Literal, Type
 
 from qtpy.QtCore import QObject, QModelIndex, QAbstractItemModel, QPersistentModelIndex
 from qtpy.QtCore import Signal
@@ -72,6 +72,12 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
     def canStartLink(self, start_index: QModelIndex, start_widget:RowWidgetT|None=None, event:QEvent|None=None) -> bool:
         return True
     
+    def linkDirectionHint(self, start_index: QModelIndex, start_widget:RowWidgetT|None=None, event:QEvent|None=None) -> Literal["forward", "backward", None]:
+        """This method is called during the dragging of a new link, 
+        and can be used to provide hints about the link direction."""
+        return "Forward"
+    
+    @abstractmethod
     def canAcceptLink(self, start_index: QModelIndex, end_index: QModelIndex, start_widget:RowWidgetT|None=None, end_widget:RowWidgetT|None=None, event:QEvent|None=None) -> bool:
         return True
         

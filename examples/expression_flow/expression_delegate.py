@@ -176,6 +176,8 @@ class OutletWidget(InletWidget):
         super().insertCell(pos, cell)
         cell.setY(self.boundingRect().bottom())
 
+from qdagview3.views.utils.geo import makeArrowShape, makeVerticalRoundedPath
+
 class LinkWidget(QGraphicsLineItem):
     def __init__(self, parent:QGraphicsItem|None=None):
         super().__init__(parent)
@@ -185,12 +187,32 @@ class LinkWidget(QGraphicsLineItem):
     def setLine(self, line:QLineF):
         super().setLine(line)
 
-    def boundingRect(self) -> QRectF:
-        return super().boundingRect()
+    def boundingRect(self):
+        _ = QRectF(self.line().p1(), self.line().p2())
+        _ = _.normalized()
+        r = 27
+        _ = _.adjusted(-r,-r,r,r)
+        return _
+    
+    def shape(self)->QPainterPath:
+        path:QPainterPath = makeVerticalRoundedPath(self.line(), width=4)
+        return path
+    
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None):
+        palette = option.palette
+        if self.isSelected():
+            color = palette.accent().color()
+        elif option.state & QStyle.StateFlag.State_MouseOver:
+            color = palette.highlight().color()
+        else:
+            color = palette.text().color()
 
 
+        painter.setPen(QPen(color, 2))
+        arrow = makeVerticalRoundedPath(self.line(), 2)
+        painter.drawPath(arrow)
 
-from qdagview3.models.nodes_ports_model import GraphRole, GraphDataRole
+from qdagview3.models.socket_based_nodes_model import GraphRole, GraphDataRole
 
 class ExpressionGraphDelegate(AbstractGraphDelegate):
     @staticmethod
@@ -297,7 +319,16 @@ class ExpressionGraphDelegate(AbstractGraphDelegate):
         
         print(f"Moving link widget between {start_widget} and {end_widget}")
         
-        line = QLineF(makeLineBetweenShapes(start_widget, end_widget))
+        line = QLineF(makeLineBetweenShapes(start_widget, end_widget, distance=10))
+        if isinstance(start_widget, QGraphicsItem):
+            p1 = start_widget.mapToScene(start_widget.boundingRect().center())
+        else:
+            p1 = start_widget
+        if isinstance(end_widget, QGraphicsItem):
+            p2 = end_widget.mapToScene(end_widget.boundingRect().center())
+        else:
+            p2 = end_widget
+        line = QLineF(p1, p2)
         link_widget.setLine(line)
     
     def destroyLinkWidget(self, link_widget: LinkWidget, source_widget:RowWidget|None, target_widget:RowWidget|None)->bool:
@@ -339,7 +370,19 @@ class ExpressionGraphDelegate(AbstractGraphDelegate):
             return True
         else:
             return False
-    
+        
+    def linkDirectionHint(self, start_index: QModelIndex, start_widget:RowWidget|None=None, event:QEvent|None=None) -> Literal['forward', 'backward', None]:
+        # By default, do not provide any hint. Override this method to provide hints about the direction of the link being created.
+        match self._normalize_role(start_index): # Just to enforce that the index is valid and has a role, since we are going to use the same logic in canStartLink and createLinkWidget, we want to make sure the role is valid as early as possible.
+            case GraphRole.Node:
+                return None # No hint for nodes, since they cannot be linked directly.
+            case GraphRole.Inlet:
+                return 'backward'
+            case GraphRole.Outlet:
+                return 'forward'
+            case _:
+                return None
+            
     def canAcceptLink(self, start_index: QModelIndex, end_index: QModelIndex, start_widget:RowWidget|None=None, end_widget:RowWidget|None=None, event:QEvent|None=None) -> bool:
         # By default, allow all links. Override this method to implement custom logic.
         if (end_index.isValid() 

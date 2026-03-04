@@ -728,8 +728,8 @@ class GraphView(QGraphicsView):
             tail_distance = (local_pos-link_widget.line().p1()).manhattanLength()
             head_distance = (local_pos-link_widget.line().p2()).manhattanLength()
 
-            payload_type = 'head' if head_distance < tail_distance else 'tail'
-            self._interaction_payload = link_index, payload_type
+            linking_direction = 'backward' if head_distance > tail_distance else 'forward'
+            self._interaction_payload = link_index, linking_direction
             self._interaction_mode = "LINKING"
             return
         else:
@@ -740,8 +740,9 @@ class GraphView(QGraphicsView):
             row_widget = self._row_widget_manager.getWidget(row_index)
 
             if row_index and self._delegate.canStartLink(row_index, row_widget, event):
+                linking_direction = self._delegate.linkDirectionHint(row_index, row_widget, event)
                 self._interaction_mode = "LINKING"
-                self._interaction_payload = (row_index, 'outlet')  # TODO: determine if it's an inlet or outlet based on the position of the click
+                self._interaction_payload = (row_index, linking_direction)  # TODO: consider renaming 'outlet' to 'forward' and 'inlet' to 'backward'
                 self._draft_link = self._delegate.createLinkWidget(None, row_widget, None)
                 scene = self.scene()
                 assert scene is not None
@@ -755,23 +756,23 @@ class GraphView(QGraphicsView):
         scene_pos = self.mapToScene(QPoint(int(view_pos.x()), int(view_pos.y())))
         match self._interaction_mode:
             case "LINKING":
-                payload_index, payload_type = self._interaction_payload
-                match payload_type:
-                    case 'head':
+                payload_index, payload_direction = self._interaction_payload
+                if payload_index.model() is self._links_model:
+                    if payload_direction == "forward":
                         link_widget = self._link_widget_manager.getWidget(payload_index)
                         source_index = self._links_model.linkSource(payload_index)
                         source_widget = self._row_widget_manager.getWidget(source_index) if source_index is not None else None
                         
                         self._delegate.moveLinkWidget(link_widget, source_widget, scene_pos)
-
-                    case 'tail':
+                    elif payload_direction == "backward":
                         link_widget = self._link_widget_manager.getWidget(payload_index)
                         target_index = self._links_model.linkTarget(payload_index)
                         target_widget = self._row_widget_manager.getWidget(target_index) if target_index is not None else None
 
                         self._delegate.moveLinkWidget(link_widget, scene_pos, target_widget)
 
-                    case 'outlet':
+                elif payload_index.model() is self._links_model.nodesModel():
+                    if payload_direction == "forward":
                         end_index = self.rowAt(view_pos)  # Ensure the index is updated
                         end_widget = self._row_widget_manager.getWidget(end_index) #TODO: consider using invalid QModelIndex instead of None?
                         
@@ -781,11 +782,16 @@ class GraphView(QGraphicsView):
                         else:
                             self._delegate.moveLinkWidget(self._draft_link, start_widget, scene_pos)
 
-                    case 'inlet':
-                        ...
+                    elif payload_direction == "backward":
+                        end_index = self.rowAt(view_pos)  # Ensure the index is updated
+                        end_widget = self._row_widget_manager.getWidget(end_index) #TODO: consider using invalid QModelIndex instead of None?
+                        
+                        start_widget = self._row_widget_manager.getWidget(payload_index)
+                        if end_index and end_index.isValid() and self._delegate.canAcceptLink(end_index, payload_index, end_widget, start_widget, event): # TODO: add option for snap behaviour
+                            self._delegate.moveLinkWidget(self._draft_link, end_widget, start_widget)
+                        else:
+                            self._delegate.moveLinkWidget(self._draft_link, scene_pos, start_widget)
 
-                    case _:
-                        ...
 
             case _:
                 super().mouseMoveEvent(event)
@@ -817,44 +823,12 @@ class GraphView(QGraphicsView):
             reset_linking_state()
             return
 
-        payload_index, payload_type = self._interaction_payload
+        payload_index, linking_direction = self._interaction_payload
         view_pos = QPoint(int(event.position().x()), int(event.position().y()))
         drop_index = self.rowAt(view_pos)
 
-        match payload_type:
-            case 'outlet':
-                start_index = payload_index
-                start_widget = self._row_widget_manager.getWidget(start_index)
-                end_index = drop_index if drop_index and drop_index.isValid() else None
-                end_widget = self._row_widget_manager.getWidget(end_index) if end_index else None
-
-                can_link = bool(
-                    end_index
-                    and self._delegate.canAcceptLink(start_index, end_index, start_widget, end_widget, event)
-                )
-                destroy_draft_link(start_widget, end_widget)
-                reset_linking_state()
-                if can_link:
-                    self._links_model.add_link(start_index, end_index)
-                return
-
-            case 'inlet':
-                end_index = payload_index
-                end_widget = self._row_widget_manager.getWidget(end_index)
-                start_index = drop_index if drop_index and drop_index.isValid() else None
-                start_widget = self._row_widget_manager.getWidget(start_index) if start_index else None
-
-                can_link = bool(
-                    start_index
-                    and self._delegate.canAcceptLink(start_index, end_index, start_widget, end_widget, event)
-                )
-                destroy_draft_link(start_widget, end_widget)
-                reset_linking_state()
-                if can_link:
-                    self._links_model.add_link(start_index, end_index)
-                return
-
-            case 'head':
+        if payload_index.model() is self._links_model:
+            if linking_direction == "forward":
                 link_index = payload_index
                 if not link_index or not link_index.isValid():
                     reset_linking_state()
@@ -890,8 +864,8 @@ class GraphView(QGraphicsView):
                     self._delegate.moveLinkWidget(link_widget, source_widget, prev_target_widget)
                 reset_linking_state()
                 return
-
-            case 'tail':
+            
+            elif linking_direction == "backward":
                 link_index = payload_index
                 if not link_index or not link_index.isValid():
                     reset_linking_state()
@@ -927,10 +901,48 @@ class GraphView(QGraphicsView):
                     self._delegate.moveLinkWidget(link_widget, prev_source_widget, target_widget)
                 reset_linking_state()
                 return
-
-            case _:
+            else:
                 reset_linking_state()
                 return
+            
+        elif payload_index.model() is self._links_model.nodesModel():
+            if linking_direction == "forward":
+                start_index = payload_index
+                start_widget = self._row_widget_manager.getWidget(start_index)
+                end_index = drop_index if drop_index and drop_index.isValid() else None
+                end_widget = self._row_widget_manager.getWidget(end_index) if end_index else None
+
+                can_link = bool(
+                    end_index
+                    and self._delegate.canAcceptLink(start_index, end_index, start_widget, end_widget, event)
+                )
+                destroy_draft_link(start_widget, end_widget)
+                reset_linking_state()
+                if can_link:
+                    self._links_model.add_link(start_index, end_index)
+                return
+            elif linking_direction == "backward":
+                end_index = payload_index
+                end_widget = self._row_widget_manager.getWidget(end_index)
+                start_index = drop_index if drop_index and drop_index.isValid() else None
+                start_widget = self._row_widget_manager.getWidget(start_index) if start_index else None
+
+                can_link = bool(
+                    start_index
+                    and self._delegate.canAcceptLink(start_index, end_index, start_widget, end_widget, event)
+                )
+                destroy_draft_link(start_widget, end_widget)
+                reset_linking_state()
+                if can_link:
+                    self._links_model.add_link(start_index, end_index)
+                return
+            else:
+                reset_linking_state()
+                return
+        else:
+            reset_linking_state()
+            return
+
 
     def mouseDoubleClickEvent(self, event:QMouseEvent):
         assert self._links_model, "Model must be set before handling double click!"
