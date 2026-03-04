@@ -30,6 +30,7 @@ from qdagview3.delegates.tree_graph_delegate import TreeGraphDelegate
 
 from expression_delegate import ExpressionGraphDelegate, GraphRole, GraphDataRole
 
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -57,12 +58,12 @@ class MainWindow(QMainWindow):
         self.graph_view.setLinksSelectionModel(self.link_selection_model)
 
         # - nodes list -
-        self.nodes_table = QTableView(self)
+        self.nodes_table = QListView(self)
         self.nodes_table.setModel(self.nodes_model)
         self.nodes_table.setSelectionModel(self.nodes_selection_model)
-        self.nodes_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.SelectedClicked)
+        # self.nodes_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.SelectedClicked)
         # self.nodes_list.header().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.nodes_table.setFixedWidth(200)
+        # self.nodes_table.setFixedWidth(200)
         # self.nodes_table.verticalHeader().setVisible(True)
         # self.nodes_table.verticalHeader().setFixedWidth(100)
         # self.nodes_list.setHeaderHidden(False)

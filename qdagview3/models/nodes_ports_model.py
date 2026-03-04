@@ -7,13 +7,13 @@ import warnings
 from qtpy.QtCore import QAbstractItemModel, QModelIndex, QObject, Qt
 
 
-GraphDataRole = Qt.ItemDataRole.UserRole+1
+GraphDataRole = Qt.ItemDataRole.UserRole+10
 
-from enum import IntEnum
-class GraphRole(IntEnum):
-    Node = 0
-    Inlet = 1
-    Outlet = 2
+from enum import StrEnum
+class GraphRole(StrEnum):
+    Node = "Node"
+    Inlet = "Inlet"
+    Outlet = "Outlet"
 
 
 
@@ -141,32 +141,28 @@ class NodesPortsModel(QAbstractItemModel):
         
         if index.column() != 0:
             return None
+        
+        if role not in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole, GraphDataRole):
+            return None
 
         item = self.itemFromIndex(index)
-        match item:
-            case NodeData():
-                node = item
-                match role:
-                    case Qt.ItemDataRole.DisplayRole | Qt.ItemDataRole.EditRole:
-                        return node.name
-                    case GraphDataRole:
-                        return GraphRole.Node
-            case InletData():
-                inlet = item
-                match role:
-                    case Qt.ItemDataRole.DisplayRole | Qt.ItemDataRole.EditRole:
-                        return inlet.name
-                    case GraphDataRole:
-                        return GraphRole.Inlet
-            case OutletData():
-                outlet = item
-                match role:
-                    case Qt.ItemDataRole.DisplayRole | Qt.ItemDataRole.EditRole:
-                        return outlet.name
-                    case GraphDataRole:
-                        return GraphRole.Outlet
-            case _:
-                raise TypeError(f"Unexpected item type: {item}")
+        if isinstance(item, NodeData):
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+                return item.name
+            elif role == GraphDataRole:
+                return GraphRole.Node
+        elif isinstance(item, InletData):
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+                return item.name
+            elif role == GraphDataRole:
+                return GraphRole.Inlet
+        elif isinstance(item, OutletData):
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+                return item.name
+            elif role == GraphDataRole:
+                return GraphRole.Outlet
+        return None
+
 
     def setData(self, index: QModelIndex, value, role: int = Qt.ItemDataRole.EditRole) -> bool:
         if not index.isValid():
@@ -206,30 +202,30 @@ class NodesPortsModel(QAbstractItemModel):
             return Qt.ItemFlag.ItemIsEnabled
         return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable
 
-    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole):
-        if orientation == Qt.Orientation.Horizontal and role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-            if 0 <= section < len(self._headers):
-                return self._headers[section]
+    # def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole):
+    #     if orientation == Qt.Orientation.Horizontal and role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+    #         if 0 <= section < len(self._headers):
+    #             return self._headers[section]
             
-        if orientation == Qt.Orientation.Vertical and role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-            return f"{section}"
-        return None
+    #     if orientation == Qt.Orientation.Vertical and role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+    #         return f"{section}"
+    #     return None
 
-    def setHeaderData(
-        self,
-        section: int,
-        orientation: Qt.Orientation,
-        value,
-        role: int = Qt.ItemDataRole.EditRole,
-    ) -> bool:
-        if orientation != Qt.Orientation.Horizontal or role != Qt.ItemDataRole.EditRole:
-            return False
-        if not (0 <= section < len(self._headers)):
-            return False
+    # def setHeaderData(
+    #     self,
+    #     section: int,
+    #     orientation: Qt.Orientation,
+    #     value,
+    #     role: int = Qt.ItemDataRole.EditRole,
+    # ) -> bool:
+    #     if orientation != Qt.Orientation.Horizontal or role != Qt.ItemDataRole.EditRole:
+    #         return False
+    #     if not (0 <= section < len(self._headers)):
+    #         return False
 
-        self._headers[section] = str(value)
-        self.headerDataChanged.emit(orientation, section, section)
-        return True
+    #     self._headers[section] = str(value)
+    #     self.headerDataChanged.emit(orientation, section, section)
+    #     return True
 
     def insertRows(self, row: int, count: int, parent: QModelIndex = QModelIndex()) -> bool:
         if count <= 0:
