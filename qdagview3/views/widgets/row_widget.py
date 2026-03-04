@@ -92,13 +92,13 @@ class RowWidget(QGraphicsWidget):
         cell.setParentItem(None)
         self._refreshLayout()
 
-    def insertChildRow(self, pos:int, child:Self):
+    def insertChild(self, pos:int, child:Self):
         assert isinstance(child, RowWidget)
         body_layout = cast(QGraphicsLinearLayout, self._body.layout())
         body_layout.insertItem(pos, child)
         self._refreshLayout()
 
-    def removeChildRow(self, child:Self):
+    def removeChild(self, child:Self):
         assert isinstance(child, RowWidget) 
         body_layout = cast(QGraphicsLinearLayout, self._body.layout())
         body_layout.removeItem(child)

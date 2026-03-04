@@ -5,9 +5,10 @@
 - [ ] ADD python function flow editor example
 - [ ] ADD nx graph editor example 
 - [ ] houdini like graph editor example
-
-
 - [ ] ADD test views
+
+- [ ] ADD directed links
+- [ ] ADD inlet and outlet widgets
 
 - [x] ADD test to LinkModel
 - [x] ADD tests to standard nodes model

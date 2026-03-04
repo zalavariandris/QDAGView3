@@ -7,55 +7,32 @@ from qtpy.QtCore import QAbstractItemModel, QModelIndex, QObject, Qt
 
 
 @dataclass
-class StandardNodesItem:
-    values: List[str]
-    parent: Optional["StandardNodesItem"] = None
-    children: List["StandardNodesItem"] = field(default_factory=list)
+class RootData:
+    nodes: List[NodeData] = field(default_factory=list)
 
-    def child(self, row: int) -> Optional["StandardNodesItem"]:
-        if 0 <= row < len(self.children):
-            return self.children[row]
-        return None
+@dataclass
+class InletData:
+    name: str
+    node: NodeData
 
-    def child_count(self) -> int:
-        return len(self.children)
+@dataclass
+class OutletData:
+    name: str
+    node: NodeData
 
-    def column_count(self) -> int:
-        return len(self.values)
-
-    def row(self) -> int:
-        if self.parent is None:
-            return 0
-        return self.parent.children.index(self)
-
-    def insert_child(self, row: int, item: "StandardNodesItem") -> None:
-        item.parent = self
-        self.children.insert(row, item)
-
-    def remove_child(self, row: int) -> bool:
-        if 0 <= row < len(self.children):
-            child = self.children.pop(row)
-            child.parent = None
-            return True
-        return False
-
-    def insert_column(self, column: int, default_value: str = "") -> None:
-        self.values.insert(column, default_value)
-        for child in self.children:
-            child.insert_column(column, default_value)
-
-    def remove_column(self, column: int) -> None:
-        if 0 <= column < len(self.values):
-            self.values.pop(column)
-        for child in self.children:
-            child.remove_column(column)
+@dataclass
+class NodeData:
+    name: str
+    graph: RootData
+    inlets: List[InletData] = field(default_factory=list)
+    outlets: List[OutletData] = field(default_factory=list)
 
 
 class StandardNodesModel(QAbstractItemModel):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self._headers: List[str] = ["Column 1"]
-        self._root = StandardNodesItem(values=["Root"])
+        self._headers: List[str] = ["expression"]
+        self._root = RootData()
 
     def _item_from_index(self, index: QModelIndex) -> StandardNodesItem:
         if index.isValid():
@@ -78,25 +55,55 @@ class StandardNodesModel(QAbstractItemModel):
             return QModelIndex()
 
         child_item = self._item_from_index(index)
-        parent_item = child_item.parent
+        match child_item:
+            case NodeData():
+                return None
+            
+            case InletData():
+                inlet = child_item
+                node = child_item.node
+                row = node.inlets.index(inlet)
+                return self.createIndex(row, 0, node)
 
-        if parent_item is None or parent_item is self._root:
-            return QModelIndex()
+            case OutletData():
+                outlet = child_item
+                node = child_item.node
+                row = node.outlets.index(outlet)
+                return self.createIndex(row, 0, node)
 
-        return self.createIndex(parent_item.row(), 0, parent_item)
+            case _:
+                raise TypeError(f"Unexpected item type: {child_item}")
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        if parent.column() > 0:
-            return 0
+        item = self._item_from_index(parent)
+        match item:
+            case NodeData():
+                node = item
+                return len(node.inlets) + len(node.outlets)
+            
+            case InletData():
+                return 0
 
-        parent_item = self._item_from_index(parent)
-        return parent_item.child_count()
+            case OutletData():
+                return 0
+
+            case _:
+                raise TypeError(f"Unexpected item type: {parent}")
 
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        if parent.isValid():
-            item = self._item_from_index(parent)
-            return item.column_count()
-        return len(self._headers)
+        item = self._item_from_index(parent)
+        match item:
+            case NodeData():
+                return 1
+            
+            case InletData():
+                return 1
+
+            case OutletData():
+                return 1
+
+            case _:
+                raise TypeError(f"Unexpected item type: {item}")
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
         if not index.isValid():
@@ -104,23 +111,56 @@ class StandardNodesModel(QAbstractItemModel):
 
         if role not in (Qt.DisplayRole, Qt.EditRole):
             return None
+        
+        if index.column() != 0:
+            return None
 
         item = self._item_from_index(index)
-        if 0 <= index.column() < len(item.values):
-            return item.values[index.column()]
-        return ""
+        match item:
+            case NodeData():
+                node = item
+                return node.name
+            case InletData():
+                inlet = item
+                return inlet.name
+            case OutletData():
+                outlet = item
+                return outlet.name
+            case _:
+                raise TypeError(f"Unexpected item type: {item}")
 
-    def setData(self, index: QModelIndex, value, role: int = Qt.EditRole) -> bool:
-        if not index.isValid() or role != Qt.EditRole:
+    def setData(self, index: QModelIndex, value, role: int = Qt.ItemDataRole.EditRole) -> bool:
+        if not index.isValid():
+            return False
+
+        if role not in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+            return False
+        
+        if index.column() != 0:
             return False
 
         item = self._item_from_index(index)
-        if not (0 <= index.column() < len(item.values)):
-            return False
-
-        item.values[index.column()] = str(value)
-        self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
-        return True
+        match item:
+            case NodeData():
+                node = item
+                node.name = value if role == Qt.ItemDataRole.EditRole else str(value)
+                self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
+                return True
+            
+            case InletData():
+                inlet = item
+                inlet.name = value if role == Qt.ItemDataRole.EditRole else str(value)
+                self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
+                return True
+            
+            case OutletData():
+                outlet = item
+                outlet.name = value if role == Qt.ItemDataRole.EditRole else str(value)
+                self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
+                return True
+            
+            case _:
+                return False
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
         if not index.isValid():
@@ -181,33 +221,3 @@ class StandardNodesModel(QAbstractItemModel):
             parent_item.remove_child(row)
         self.endRemoveRows()
         return True
-
-    def insertColumns(self, column: int, count: int, parent: QModelIndex = QModelIndex()) -> bool:
-        if parent.isValid() or count <= 0:
-            return False
-        if column < 0 or column > len(self._headers):
-            return False
-
-        self.beginInsertColumns(QModelIndex(), column, column + count - 1)
-        for offset in range(count):
-            self._headers.insert(column + offset, f"Column {column + offset + 1}")
-            self._root.insert_column(column + offset, "")
-        self.endInsertColumns()
-        return True
-
-    def removeColumns(self, column: int, count: int, parent: QModelIndex = QModelIndex()) -> bool:
-        if parent.isValid() or count <= 0:
-            return False
-        if column < 0 or column + count > len(self._headers):
-            return False
-        if len(self._headers) - count < 1:
-            return False
-
-        self.beginRemoveColumns(QModelIndex(), column, column + count - 1)
-        for _ in range(count):
-            self._headers.pop(column)
-            self._root.remove_column(column)
-        self.endRemoveColumns()
-        return True
-
-

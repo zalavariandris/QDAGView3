@@ -2,7 +2,10 @@ from qtpy.QtCore import *
 from qtpy.QtWidgets import *
 from contextlib import contextmanager
 
-def distribute_items(items: list[QGraphicsItem], rect: QRectF, equal_spacing=True, orientation=Qt.Orientation.Horizontal):
+def distribute_items(items: list[QGraphicsItem], 
+        rect: QRectF, 
+        equal_spacing=True, 
+        orientation=Qt.Orientation.Horizontal):
     num_items = len(items)
     
     if num_items < 1:
