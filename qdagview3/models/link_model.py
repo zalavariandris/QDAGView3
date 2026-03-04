@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 from qtpy.QtCore import QAbstractItemModel, QModelIndex, QObject, QPersistentModelIndex, Qt
+from qtpy.QtCore import Signal
 
+from qdagview3.utils.graphutils import group_consecutive_numbers
 
 @dataclass(slots=True)
 class LinkData:
@@ -24,17 +26,18 @@ class LinkModel(QAbstractItemModel):
     Column 0 stores the source row index (persisted as QPersistentModelIndex).
     Column 1 stores the target row index (persisted as QPersistentModelIndex).
     """
-
-    SourceIndexRole = int(Qt.ItemDataRole.UserRole) + 1
-    TargetIndexRole = int(Qt.ItemDataRole.UserRole) + 2
+    nodesModelChanged = Signal()
 
     def __init__(self, nodes_model: QAbstractItemModel, parent=None) -> None:
         super().__init__(parent)
         self._headers = ("Source", "Target")
         self._links: list[LinkData] = []
-        self._nodes_model: QAbstractItemModel = nodes_model
-        self._connect_nodes_model(nodes_model)
+        self._nodes_model: QAbstractItemModel|None = None
+        self._nodes_model_connections = []
 
+        self.setNodesModel(nodes_model)
+
+    # QAbstractItemModel implementation
     def index(self, row: int, column: int, parent: QModelIndex = QModelIndex()) -> QModelIndex:
         if parent.isValid() or not self.hasIndex(row, column, parent):
             return QModelIndex()
@@ -59,19 +62,37 @@ class LinkModel(QAbstractItemModel):
         if not (0 <= index.row() < len(self._links)):
             return None
 
-        link = self._links[index.row()]
-        stored = link.source if index.column() == 0 else link.target
-
-        if role == Qt.DisplayRole:
-            return self._display_text(stored)
-        if role == Qt.EditRole:
-            return stored
-        if role == self.SourceIndexRole and index.column() == 0:
-            return stored
-        if role == self.TargetIndexRole and index.column() == 1:
-            return stored
-
-        return None
+        def node_display_text(node_index: QPersistentModelIndex) -> str:
+            if not node_index.isValid():
+                return "<invalid>"
+            value = node_index.data(Qt.ItemDataRole.DisplayRole)
+            if value:
+                return str(value)
+            else:
+                return f"row={node_index.row()}"
+            
+        link: LinkData = self._links[index.row()]
+        match index.column():
+            case 0:
+                node_index: QPersistentModelIndex = link.source
+                match role:
+                    case Qt.ItemDataRole.DisplayRole:
+                        return node_display_text(node_index)
+                    case Qt.ItemDataRole.EditRole:
+                        return node_index
+                    case _:
+                        return None
+            case 1:
+                node_index: QPersistentModelIndex = link.target
+                match role:
+                    case Qt.ItemDataRole.DisplayRole:
+                        return node_display_text(node_index)
+                    case Qt.ItemDataRole.EditRole:
+                        return node_index
+                    case _:
+                        return None
+            case _:
+                return None
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
         if not index.isValid():
@@ -85,6 +106,7 @@ class LinkModel(QAbstractItemModel):
             return self._headers[section]
         return None
 
+    # Public API for managing links and nodes model
     def nodesModel(self) -> QAbstractItemModel:
         return self._nodes_model
 
@@ -93,13 +115,53 @@ class LinkModel(QAbstractItemModel):
             return
 
         if self._nodes_model is not None:
-            self._disconnect_nodes_model(self._nodes_model)
+            for signal, slot in self._nodes_model_connections:
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+            self._nodes_model_connections = []
+            self._nodes_model = None
 
-        self._nodes_model = nodes_model
+        if nodes_model is not None:
+            nodes_model_connections = [
+                (nodes_model.rowsAboutToBeRemoved, self._on_nodes_rows_about_to_be_removed),
+                (nodes_model.rowsRemoved,          self._on_nodes_model_changed),
+                (nodes_model.modelReset,           self._on_nodes_model_changed),
+                (nodes_model.layoutChanged,        self._on_nodes_model_changed),
+                (nodes_model.destroyed,            self._on_nodes_model_destroyed)
+            ]
+            for signal, slot in nodes_model_connections:
+                signal.connect(slot)
+            self._nodes_model_connections = nodes_model_connections
+            self._nodes_model = nodes_model
+
         self.clear_links()
+        self.nodesModelChanged.emit()
 
-        if self._nodes_model is not None:
-            self._connect_nodes_model(self._nodes_model)
+    def _on_nodes_model_changed(self, *args) -> None:
+        del args
+        self.remove_invalid_links()
+
+    def _on_nodes_rows_about_to_be_removed(self, parent: QModelIndex, first: int, last: int) -> None:
+        """Remove links that touch any node in the subtree being removed."""
+        rows_to_remove: list[int] = []
+        for row, link in enumerate(self._links):
+            source_index = QModelIndex(link.source)
+            target_index = QModelIndex(link.target)
+
+            if (
+                self._is_in_removed_subtree(source_index, parent, first, last)
+                or self._is_in_removed_subtree(target_index, parent, first, last)
+            ):
+                rows_to_remove.append(row)
+
+        self.remove_links(rows_to_remove)
+
+    def _on_nodes_model_destroyed(self, obj: QObject) -> None:
+        del obj
+        self._nodes_model = None
+        self.clear_links()
 
     def add_link(self, source: QModelIndex, target: QModelIndex) -> int:
         """Append a link and return its row index.
@@ -146,10 +208,32 @@ class LinkModel(QAbstractItemModel):
         self.dataChanged.emit(
             left,
             right,
-            [Qt.DisplayRole, Qt.EditRole, self.SourceIndexRole, self.TargetIndexRole],
+            [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole],
         )
         return True
-    
+
+    def remove_link(self, row: int) -> bool:
+        if not (0 <= row < len(self._links)):
+            return False
+
+        self.beginRemoveRows(QModelIndex(), row, row)
+        self._links.pop(row)
+        self.endRemoveRows()
+        return True
+
+    def remove_links(self, rows: list[int]) -> int:
+        """Remove multiple links at once, grouping consecutive rows into ranges."""
+        if not rows:
+            return 0
+        removed = 0
+        # Process ranges in reverse order so row indices stay valid
+        for r in reversed(list(group_consecutive_numbers(sorted(rows)))):
+            self.beginRemoveRows(QModelIndex(), r.start, r.stop - 1)
+            del self._links[r.start:r.stop]
+            self.endRemoveRows()
+            removed += len(r)
+        return removed
+
     def linkSource(self, link_index: QModelIndex) -> QModelIndex:
         assert isinstance(link_index, QModelIndex), f"link_index must be a QModelIndex instance, got {type(link_index)} instead"
         assert link_index.isValid(), f"link_index must be valid, got: {link_index}"
@@ -170,7 +254,7 @@ class LinkModel(QAbstractItemModel):
         persistent_index = self._links[index.row()].target
         return QModelIndex(persistent_index)
 
-    def links_connected_to(self, port_index: QModelIndex) -> list[QModelIndex]:
+    def linksConnectedTo(self, port_index: QModelIndex) -> list[QModelIndex]:
         """Return a list of link indexes connected to the given port index."""
         assert isinstance(port_index, QModelIndex), f"port_index must be a QModelIndex instance, got {type(port_index)} instead"
         assert port_index.isValid(), f"port_index must be valid, got: {port_index}"
@@ -184,15 +268,6 @@ class LinkModel(QAbstractItemModel):
                 connected_links.append(self.index(row, 0))
         return connected_links
 
-    def remove_link(self, row: int) -> bool:
-        if not (0 <= row < len(self._links)):
-            return False
-
-        self.beginRemoveRows(QModelIndex(), row, row)
-        self._links.pop(row)
-        self.endRemoveRows()
-        return True
-
     def remove_invalid_links(self) -> int:
         """Remove links whose source or target index is no longer valid."""
         invalid_rows = [
@@ -200,9 +275,7 @@ class LinkModel(QAbstractItemModel):
             for row, link in enumerate(self._links)
             if not link.source.isValid() or not link.target.isValid()
         ]
-        for row in reversed(invalid_rows):
-            self.remove_link(row)
-        return len(invalid_rows)
+        return self.remove_links(invalid_rows)
 
     def clear_links(self) -> None:
         if not self._links:
@@ -217,52 +290,6 @@ class LinkModel(QAbstractItemModel):
             return None
         link = self._links[row]
         return link.source, link.target
-
-    def _connect_nodes_model(self, model: QAbstractItemModel) -> None:
-        model.rowsAboutToBeRemoved.connect(self._on_nodes_rows_about_to_be_removed)
-        model.rowsRemoved.connect(self._on_nodes_model_changed)
-        model.modelReset.connect(self._on_nodes_model_changed)
-        model.layoutChanged.connect(self._on_nodes_model_changed)
-        model.destroyed.connect(self._on_nodes_model_destroyed)
-
-    def _disconnect_nodes_model(self, model: QAbstractItemModel) -> None:
-        self._safe_disconnect(model.rowsAboutToBeRemoved, self._on_nodes_rows_about_to_be_removed)
-        self._safe_disconnect(model.rowsRemoved, self._on_nodes_model_changed)
-        self._safe_disconnect(model.modelReset, self._on_nodes_model_changed)
-        self._safe_disconnect(model.layoutChanged, self._on_nodes_model_changed)
-        self._safe_disconnect(model.destroyed, self._on_nodes_model_destroyed)
-
-    @staticmethod
-    def _safe_disconnect(signal, slot) -> None:
-        try:
-            signal.disconnect(slot)
-        except (TypeError, RuntimeError):
-            pass
-
-    def _on_nodes_model_changed(self, *args) -> None:
-        del args
-        self.remove_invalid_links()
-
-    def _on_nodes_rows_about_to_be_removed(self, parent: QModelIndex, first: int, last: int) -> None:
-        """Remove links that touch any node in the subtree being removed."""
-        rows_to_remove: list[int] = []
-        for row, link in enumerate(self._links):
-            source_index = QModelIndex(link.source)
-            target_index = QModelIndex(link.target)
-
-            if (
-                self._is_in_removed_subtree(source_index, parent, first, last)
-                or self._is_in_removed_subtree(target_index, parent, first, last)
-            ):
-                rows_to_remove.append(row)
-
-        for row in reversed(rows_to_remove):
-            self.remove_link(row)
-
-    def _on_nodes_model_destroyed(self, obj: QObject) -> None:
-        del obj
-        self._nodes_model = None
-        self.clear_links()
 
     def _is_valid_node_index(self, index: QModelIndex) -> bool:
         return index.isValid() and self._nodes_model is not None and index.model() is self._nodes_model
@@ -291,12 +318,4 @@ class LinkModel(QAbstractItemModel):
             return index
         return index.sibling(index.row(), 0)
 
-    @staticmethod
-    def _display_text(index: QPersistentModelIndex) -> str:
-        if not index.isValid():
-            return "<invalid>"
 
-        value = index.data(Qt.DisplayRole)
-        if value is None:
-            return f"row={index.row()}"
-        return str(value)

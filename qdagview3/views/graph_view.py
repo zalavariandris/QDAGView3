@@ -65,7 +65,9 @@ class GraphView(QGraphicsView):
         self._links_model_connections: list[tuple[Signal, Callable]] = []
         self._nodes_model_connections: list[tuple[Signal, Callable]] = []
         self._nodes_selection_model:QItemSelectionModel | None = None
-        self._node_selection_connections: list[tuple[Signal, Callable]] = []
+        self._nodes_selection_connections: list[tuple[Signal, Callable]] = []
+        self._links_selection_model:QItemSelectionModel | None = None
+        self._links_selection_connections: list[tuple[Signal, Callable]] = []
 
         ## State of the graph view
         # self._linking_tool = LinkingTool(self)
@@ -406,7 +408,7 @@ class GraphView(QGraphicsView):
     def handlePortPositionChanged(self, port_index:PortT):
         """Reposition all links connected to the moved port widget."""
         assert self._links_model, "Model must be set before handling port position changes!"
-        link_indexes = self._links_model.links_connected_to(port_index)
+        link_indexes = self._links_model.linksConnectedTo(port_index)
         print(f"Port index {port_index} position changed, updating connected links: {link_indexes}")
         for link_index in link_indexes:
             if link_widget := self._link_widget_manager.getWidget(link_index):
@@ -586,36 +588,36 @@ class GraphView(QGraphicsView):
                 cell_widget.setText(f"{text}")
 
     ## Selection handling   
-    def setSelectionModel(self, graph_selection_model: GraphSelectionModel):
+    def setNodesSelectionModel(self, nodes_selection_model: QItemSelectionModel):
         """
-        Set the selection model for the graph view.
+        Set the selection model for the nodes.
         This is used to synchronize the selection of nodes in the graph view
         with the selection model.
         """
-        assert isinstance(graph_selection_model, GraphSelectionModel), f"got: {graph_selection_model}"
+        assert isinstance(nodes_selection_model, QItemSelectionModel), f"got: {nodes_selection_model}"
         assert self._links_model, "Model must be set before setting the selection model!"
-        assert graph_selection_model.graphModel() == self._links_model, "Selection model must be for the same model as the graph view!"
+        assert nodes_selection_model.model() == self._links_model.nodesModel(), "Selection model must be for the same model as the graph view!"
         
         if self._nodes_selection_model:
-            for signal, slot in self._node_selection_connections:
+            for signal, slot in self._nodes_selection_connections:
                 signal.disconnect(slot)
-            self._node_selection_connections = []
+            self._nodes_selection_connections = []
         
-        if graph_selection_model:
-            self._node_selection_connections = [
-                (graph_selection_model.selectionChanged, self._handleSelectionChanged),
-                (graph_selection_model.currentChanged, self._handleCurrentChanged),
+        if nodes_selection_model:
+            self._nodes_selection_connections = [
+                (nodes_selection_model.selectionChanged, self._handleNodesSelectionChanged),
+                (nodes_selection_model.currentChanged, self._handleNodesCurrentChanged),
             ]
-            for signal, slot in self._node_selection_connections:
+            for signal, slot in self._nodes_selection_connections:
                 signal.connect(slot)
 
-        self._nodes_selection_model = graph_selection_model
+        self._nodes_selection_model = nodes_selection_model
         
         scene = self.scene()
         assert scene is not None
-        scene.selectionChanged.connect(self._syncSelectionController)
+        scene.selectionChanged.connect(self._syncNodeSelectionModel)
 
-    def selectionModel(self) -> GraphSelectionModel | None:
+    def nodesSelectionModel(self) -> QItemSelectionModel | None:
         """
         Get the current selection model for the graph view.
         This is used to synchronize the selection of nodes in the graph view
@@ -623,56 +625,101 @@ class GraphView(QGraphicsView):
         """
         return self._nodes_selection_model
     
-    @Slot(list, list)
-    def _handleSelectionChanged(self, selected:list, deselected:list):
+    def setLinksSelectionModel(self, links_selection_model: QItemSelectionModel):
+        """
+        Set the selection model for the _links_.
+        This is used to synchronize the selection of _links_ in the graph view
+        with the selection model.
+        """
+        assert isinstance(links_selection_model, QItemSelectionModel), f"got: {links_selection_model}"
+        assert self._links_model, "Model must be set before setting the selection model!"
+        assert links_selection_model.model() == self._links_model, "Selection model must be for the same model as the graph view!"
+        
+        if self._links_selection_model:
+            for signal, slot in self._links_selection_connections:
+                signal.disconnect(slot)
+            self._links_selection_connections = []
+        
+        if links_selection_model:
+            self._links_selection_connections = [
+                (links_selection_model.selectionChanged, self._handleLinksSelectionChanged),
+                (links_selection_model.currentChanged, self._handleLinksCurrentChanged),
+            ]
+            for signal, slot in self._links_selection_connections:
+                signal.connect(slot)
+
+        self._links_selection_model = links_selection_model
+        
+        scene = self.scene()
+        assert scene is not None
+        scene.selectionChanged.connect(self._syncLinkSelectionModel)
+
+    def linksSelectionModel(self) -> QItemSelectionModel | None:
+        return self._links_selection_model
+
+    @Slot(QItemSelection, QItemSelection)
+    def _handleNodesSelectionChanged(self, selected:QItemSelection, deselected:QItemSelection):
         """
         Handle selection changes in the selection model.
         This updates the selection in the graph view.
         """
         assert self._nodes_selection_model, "Selection model must be set before handling selection changes!"
-        assert self._links_model, "Model must be set before handling selection changes!"
-        assert self._nodes_selection_model.graphModel() == self._links_model, "Selection model must be for the same model as the graph view!"
-        if not selected and not deselected:
+
+        if not len(selected) and not len(deselected):
             return
+        
         scene = self.scene()
         assert scene is not None
 
         with blockingSignals(scene):           
-            for index in deselected:
+            for index in deselected.indexes():
                 if index.isValid():
                     if widget:=self._row_widget_manager.getWidget(index):
                         if widget.scene() and widget.isSelected():
                             widget.setSelected(False)
                             
-            for index in selected:
+            for index in selected.indexes():
                 if index.isValid():
                     if widget:=self._row_widget_manager.getWidget(index):
                         if widget.scene() and not widget.isSelected():
                             widget.setSelected(True)
-            # selected_indexes = sorted([idx for idx in selected], 
-            #                         key= lambda idx: idx.row(), 
-            #                         reverse= True)
-            
-            # deselected_indexes = sorted([idx for idx in deselected], 
-            #                             key= lambda idx: idx.row(), 
-            #                             reverse= True)
-            
-            # for index in deselected_indexes:
-            #     if index.isValid() and index.column() == 0:
-            #         if widget:=self._widget_manager.getWidget(index):
-            #             if widget.scene() and widget.isSelected():
-            #                 widget.setSelected(False)
 
-            # for index in selected_indexes:
-            #     if index.isValid() and index.column() == 0:
-            #         if widget:=self._widget_manager.getWidget(index):
-            #             if widget.scene() and not widget.isSelected():
-            #                 widget.setSelected(True)
-
-    def _handleCurrentChanged(self, current:NodeT|LinkT, previous:NodeT|LinkT):
+    @Slot(QModelIndex, QModelIndex)
+    def _handleNodesCurrentChanged(self, current:QModelIndex, previous:QModelIndex):
         ...
 
-    def _syncSelectionController(self):
+    @Slot(QItemSelection, QItemSelection)
+    def _handleLinksSelectionChanged(self, selected:QItemSelection, deselected:QItemSelection):
+        """
+        Handle selection changes in the selection model.
+        This updates the _links_ selection in the graph view.
+        """
+        assert self._links_selection_model, "Selection model must be set before handling selection changes!"
+
+        if not len(selected) and not len(deselected):
+            return
+        
+        scene = self.scene()
+        assert scene is not None
+
+        with blockingSignals(scene):           
+            for index in deselected.indexes():
+                if index.isValid():
+                    if widget:=self._link_widget_manager.getWidget(index):
+                        if widget.scene() and widget.isSelected():
+                            widget.setSelected(False)
+                            
+            for index in selected.indexes():
+                if index.isValid():
+                    if widget:=self._link_widget_manager.getWidget(index):
+                        if widget.scene() and not widget.isSelected():
+                            widget.setSelected(True)
+
+    @Slot(QModelIndex, QModelIndex)
+    def _handleLinksCurrentChanged(self, current:QModelIndex, previous:QModelIndex):
+        ...
+
+    def _syncNodeSelectionModel(self):
         """update selection controller from scene selection"""
         print("Syncing selection controller from scene selection...")
         scene = self.scene()
@@ -681,24 +728,24 @@ class GraphView(QGraphicsView):
             # get currently selected widgets
             selected_widgets = scene.selectedItems()
 
-            # map widgets to nodeT
-            selected_indexes = map(self._row_widget_manager.getIndex, selected_widgets)
-            selected_indexes = list(filter(lambda idx: idx is not None and idx.isValid(), selected_indexes))
+            # map widgets to indexes
+            _ = map(self._row_widget_manager.getIndex, selected_widgets)
+            _ = filter(lambda idx: idx is not None and idx.isValid(), _)
+            selected_indexes = cast(list[QModelIndex], list(_))
             
             assert self._links_model, "Model must be set before syncing selection!"
-            # def selectionFromIndexes(selected_indexes:Iterable[QModelIndex]) -> QItemSelection:
-            #     """Create a QItemSelection from a list of selected indexes."""
-            #     item_selection = QItemSelection()
-            #     for index in selected_indexes:
-            #         if index.isValid():
-            #             item_selection.select(index, index)
+            def selectionFromIndexes(selected_indexes:Iterable[QModelIndex]) -> QItemSelection:
+                """Create a QItemSelection from a list of selected indexes."""
+                item_selection = QItemSelection()
+                for index in selected_indexes:
+                    if index.isValid():
+                        item_selection.select(index, index)
                 
-            #     return item_selection
-            # item_selection = selectionFromIndexes(selected_indexes)
+                return item_selection
+            item_selection = selectionFromIndexes(selected_indexes)
 
             # perform selection on model
-            
-            self._nodes_selection_model.select(selected_indexes, QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows)
+            self._nodes_selection_model.select(item_selection, QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows)
             if len(selected_indexes) > 0:
                 last_selected_index = selected_indexes[-1]
                 self._nodes_selection_model.setCurrentIndex(
@@ -707,7 +754,44 @@ class GraphView(QGraphicsView):
                 )
             else:
                 self._nodes_selection_model.clearSelection()
-                self._nodes_selection_model.setCurrentIndex(None, QItemSelectionModel.SelectionFlag.Current | QItemSelectionModel.SelectionFlag.Rows)
+                self._nodes_selection_model.clearCurrentIndex()
+
+    def _syncLinkSelectionModel(self):
+        """update selection controller from scene selection"""
+        print("Syncing link selection model from scene selection...")
+        scene = self.scene()
+        assert scene is not None
+        if self._links_model and self._links_selection_model:
+            # get currently selected widgets
+            selected_widgets = scene.selectedItems()
+
+            # map widgets to indexes
+            _ = map(self._link_widget_manager.getIndex, selected_widgets)
+            _ = filter(lambda idx: idx is not None and idx.isValid(), _)
+            selected_indexes = cast(list[QModelIndex], list(_))
+            
+            assert self._links_model, "Model must be set before syncing selection!"
+            def selectionFromIndexes(selected_indexes:Iterable[QModelIndex]) -> QItemSelection:
+                """Create a QItemSelection from a list of selected indexes."""
+                item_selection = QItemSelection()
+                for index in selected_indexes:
+                    if index.isValid():
+                        item_selection.select(index, index)
+                
+                return item_selection
+            item_selection = selectionFromIndexes(selected_indexes)
+
+            # perform selection on model
+            self._links_selection_model.select(item_selection, QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows)
+            if len(selected_indexes) > 0:
+                last_selected_index = selected_indexes[-1]
+                self._links_selection_model.setCurrentIndex(
+                    last_selected_index,
+                    QItemSelectionModel.SelectionFlag.Current | QItemSelectionModel.SelectionFlag.Rows
+                )
+            else:
+                self._links_selection_model.clearSelection()
+                self._links_selection_model.clearCurrentIndex()
 
     ## Handle mouse events
     def mousePressEvent(self, event:QMouseEvent):
@@ -932,7 +1016,6 @@ class GraphView(QGraphicsView):
             case _:
                 reset_linking_state()
                 return
-
 
     def mouseDoubleClickEvent(self, event:QMouseEvent):
         assert self._links_model, "Model must be set before handling double click!"

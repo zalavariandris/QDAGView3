@@ -9,8 +9,9 @@
 
 - [ ] ADD test views
 
-- [ ] ADD test to LinkModel
-- [ ] LinkModel needs a review. its bloated with unnecessary helper functions
+- [x] ADD test to LinkModel
+- [x] ADD tests to standard nodes model
+- [x] LinkModel needs a review. its bloated with unnecessary helper functions
 - [x] ADD relink
 - [x] ADD populate view with existing items
-- [ ] ADD sync selection
+- [x] ADD sync selection

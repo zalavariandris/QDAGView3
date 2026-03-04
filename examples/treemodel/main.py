@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from typing import List
 
-from qtpy.QtCore import QModelIndex, Qt
+from qtpy.QtCore import QModelIndex, Qt, QItemSelection, QItemSelectionModel
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -17,7 +17,7 @@ from qtpy.QtWidgets import (
     QToolBar,
     QTreeView,
     QVBoxLayout,
-    QWidget,
+    QWidget
 )
 
 from qdagview3.models.link_model import LinkModel
@@ -35,28 +35,35 @@ class MainWindow(QMainWindow):
 
         # - model -
         self.nodes_model = StandardNodesModel(self)
+        self.nodes_selection_model = QItemSelectionModel(self.nodes_model, self)
         self.link_model = LinkModel(self.nodes_model, self)
+        self.link_selection_model = QItemSelectionModel(self.link_model, self)
+
+        # - populate with some initial data -
         self.nodes_model.insertRows(0, 2, QModelIndex())
         node1 = self.nodes_model.index(0, 0, QModelIndex())
-        self.nodes_model.setData(node1, "Node 1", Qt.EditRole)
+        self.nodes_model.setData(node1, "Node 1", Qt.ItemDataRole.EditRole)
         self.nodes_model.insertRows(0, 1, node1)
         outlet = self.nodes_model.index(0, 0, node1)
-        self.nodes_model.setData(outlet, "Outlet", Qt.EditRole)
+        self.nodes_model.setData(outlet, "Outlet", Qt.ItemDataRole.EditRole)
         node2 = self.nodes_model.index(1, 0, QModelIndex())
         self.nodes_model.insertRows(0, 1, node2)
         inlet = self.nodes_model.index(0, 0, node2)
-        self.nodes_model.setData(inlet, "Inlet", Qt.EditRole)
-        self.nodes_model.setData(node2, "Node 2", Qt.EditRole)
+        self.nodes_model.setData(inlet, "Inlet", Qt.ItemDataRole.EditRole)
+        self.nodes_model.setData(node2, "Node 2", Qt.ItemDataRole.EditRole)
         self.link_model.add_link(outlet, node2)
         
-
+        # - graph view -
         delegate = TreeGraphDelegate()
         self.graph_view = GraphView(delegate=delegate, parent=self)
         self.graph_view.setModel(self.link_model)
+        self.graph_view.setNodesSelectionModel(self.nodes_selection_model)
+        self.graph_view.setLinksSelectionModel(self.link_selection_model)
 
         # - node tree views -
         self.node_tree_view = QTreeView(self)
         self.node_tree_view.setModel(self.nodes_model)
+        self.node_tree_view.setSelectionModel(self.nodes_selection_model)
         self.node_tree_view.setAlternatingRowColors(True)
         self.node_tree_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.node_tree_view.setSelectionBehavior(QAbstractItemView.SelectItems)
@@ -70,6 +77,7 @@ class MainWindow(QMainWindow):
 
         self.node_subtree_view = QTreeView(self)
         self.node_subtree_view.setModel(self.nodes_model)
+        self.node_subtree_view.setSelectionModel(self.nodes_selection_model)
         self.node_subtree_view.setAlternatingRowColors(True)
         self.node_subtree_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.node_subtree_view.setSelectionBehavior(QAbstractItemView.SelectItems)
@@ -84,6 +92,7 @@ class MainWindow(QMainWindow):
         # - link view -
         self.link_view = QTableView(self)
         self.link_view.setModel(self.link_model)
+        self.link_view.setSelectionModel(self.link_selection_model)
         self.link_view.setAlternatingRowColors(True)
         self.link_view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.link_view.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -229,8 +238,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Remove Link", "Select one or more links to remove.")
             return
 
-        for row in sorted(set(selected_rows), reverse=True):
-            self.link_model.remove_link(row)
+        self.link_model.remove_links(sorted(set(selected_rows)))
 
     def add_column(self) -> None:
         default_name = f"Column {self.nodes_model.columnCount() + 1}"
