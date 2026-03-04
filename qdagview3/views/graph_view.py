@@ -718,37 +718,34 @@ class GraphView(QGraphicsView):
         pos = event.position()
         scene_pos = self.mapToScene(event.position().toPoint())
 
-        
-        link_index = self.linkAt(QPoint(int(pos.x()), int(pos.y())))
-        if link_index and link_index.isValid():
-            # link interaction
-            # - relink -
-            link_widget = self._link_widget_manager.getWidget(link_index)
-            local_pos = link_widget.mapFromScene(scene_pos)  # Ensure scene_pos is in the correct coordinate system
-            tail_distance = (local_pos-link_widget.line().p1()).manhattanLength()
-            head_distance = (local_pos-link_widget.line().p2()).manhattanLength()
-
-            linking_direction = 'backward' if head_distance > tail_distance else 'forward'
-            self._interaction_payload = link_index, linking_direction
+        # row interaction
+        # start link
+        row_index = self.rowAt(QPoint(int(pos.x()), int(pos.y())))
+        row_widget = self._row_widget_manager.getWidget(row_index)
+        if row_index and self._delegate.canStartLink(row_index, row_widget, event):
+            linking_direction = self._delegate.linkDirectionHint(row_index, row_widget, event)
             self._interaction_mode = "LINKING"
-            return
+            self._interaction_payload = (row_index, linking_direction)  # TODO: consider renaming 'outlet' to 'forward' and 'inlet' to 'backward'
+            self._draft_link = self._delegate.createLinkWidget(None, row_widget, None)
+            scene = self.scene()
+            assert scene is not None
+            scene.addItem(self._draft_link)
         else:
-            # row interaction
-            # start link
-            row_index = self.rowAt(QPoint(int(pos.x()), int(pos.y())))
-            
-            row_widget = self._row_widget_manager.getWidget(row_index)
+            # Fallback to default behavior
+            link_index = self.linkAt(QPoint(int(pos.x()), int(pos.y())))
+            if link_index and link_index.isValid():
+                # link interaction
+                # - relink -
+                link_widget = self._link_widget_manager.getWidget(link_index)
+                local_pos = link_widget.mapFromScene(scene_pos)  # Ensure scene_pos is in the correct coordinate system
+                tail_distance = (local_pos-link_widget.line().p1()).manhattanLength()
+                head_distance = (local_pos-link_widget.line().p2()).manhattanLength()
 
-            if row_index and self._delegate.canStartLink(row_index, row_widget, event):
-                linking_direction = self._delegate.linkDirectionHint(row_index, row_widget, event)
+                linking_direction = 'backward' if head_distance > tail_distance else 'forward'
+                self._interaction_payload = link_index, linking_direction
                 self._interaction_mode = "LINKING"
-                self._interaction_payload = (row_index, linking_direction)  # TODO: consider renaming 'outlet' to 'forward' and 'inlet' to 'backward'
-                self._draft_link = self._delegate.createLinkWidget(None, row_widget, None)
-                scene = self.scene()
-                assert scene is not None
-                scene.addItem(self._draft_link)
+                return
             else:
-                # Fallback to default behavior
                 super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
