@@ -125,7 +125,9 @@ class GraphView(QGraphicsView):
                     (nodes_model.columnsInserted,         self._on_nodes_columns_inserted),
                     (nodes_model.columnsAboutToBeRemoved, self._on_nodes_columns_about_to_be_removed),
                     # (nodes_model.rowsRemoved,            self.handleNodesRemoved),
-                    (nodes_model.dataChanged,            self._on_nodes_data_changed),
+                    
+                    (nodes_model.dataChanged,             self._on_nodes_data_changed),
+                    # (nodes_model.headerDataChanged,       self._on_nodes_header_data_changed),
                 ]
                 for signal, slot in nodes_model_connections:
                     signal.connect(slot)
@@ -186,7 +188,7 @@ class GraphView(QGraphicsView):
 
             # create cell widgets
             column_count = nodes_model.columnCount(row_index)
-            self._handle_cells_inserted(row_index, 0, column_count - 1)
+            self._handle_cells_inserted(row_index, 1, column_count - 1) # Note: Start from column1 to skip the title column which is handled by the row widget itself
 
             # Now that the row widget is created, we can create widgets for the child nodes recursively
             children_count = nodes_model.rowCount(row_index)
@@ -443,8 +445,22 @@ class GraphView(QGraphicsView):
 
         link_widget.update()
 
-    def _on_nodes_header_data_changed(self, orientation:Qt.Orientation, first:int, last:int):
-        ...
+    # def _on_nodes_header_data_changed(self, orientation:Qt.Orientation, first:int, last:int):
+    #     assert self._links_model is not None, "Model must be set before handling node data changes!"
+    #     nodes_model = self._links_model.nodesModel()
+    #     assert nodes_model is not None, "Link model must have a valid nodes model"
+
+    #     # update node widgets
+    #     for row in range(first, last + 1):
+    #         first_cell_index = nodes_model.index(row, 0, QModelIndex())
+    #         # Note: Currently the row represents a node. But we refer to it by the firt cell index.
+    #         # consider refactoring, to have the first cell index be a direct representation of the node. the subsequent cell would be additional cells.
+    #         # TODO: this needs a proper documentation, and also needs a review.
+            
+    #         row_widget = self._row_widget_manager.getWidget(first_cell_index)
+    #         if row_widget:
+    #             nodes_model = self._links_model.nodesModel()
+    #             self._delegate.setRowEditorData(row_widget, row, nodes_model)
         
     ## Handle attributes data changes
     def _on_nodes_data_changed(self, topleft:QModelIndex, bottomright:QModelIndex, roles:List[int]):
@@ -453,24 +469,32 @@ class GraphView(QGraphicsView):
         assert nodes_model is not None, "Link model must have a valid nodes model"
 
         # update cell widgets
-        for col in range(topleft.column(), bottomright.column() + 1):
-            for row in range(topleft.row(), bottomright.row() + 1):
-                cell_index = nodes_model.index(row, col, topleft.parent())
-                if cell_widget:=self._cell_widget_manager.getWidget(cell_index):
-                    self._delegate.setCellEditorData(cell_widget, cell_index)
+        for row in range(topleft.row(), bottomright.row() + 1):
+            for col in range(topleft.column(), bottomright.column() + 1):
+                if col == 0:
+                    # update row widget
+                    cell_index = nodes_model.index(row, col, topleft.parent())
+                    row_widget = self._row_widget_manager.getWidget(cell_index)
+                    if row_widget:
+                        self._delegate.setRowEditorData(row_widget, cell_index)
+                else:
+                    # update cell widget
+                    cell_index = nodes_model.index(row, col, topleft.parent())
+                    if cell_widget:=self._cell_widget_manager.getWidget(cell_index):
+                        self._delegate.setCellEditorData(cell_widget, cell_index)
 
-    def handleAttributeDataChanged(self, attributes:List[QPersistentModelIndex], roles:List[int]):
-        for attribute in attributes:
-            self._set_cell_data(attribute, roles)
+    # def handleAttributeDataChanged(self, attributes:List[QPersistentModelIndex], roles:List[int]):
+    #     for attribute in attributes:
+    #         self._set_cell_data(attribute, roles)
 
-    def _set_cell_data(self, index:QPersistentModelIndex, roles:list=[]):
-        """Set the data for a cell widget."""
-        # assert index.isValid(), "Index must be valid"
+    # def _set_cell_data(self, index:QPersistentModelIndex, roles:list=[]):
+    #     """Set the data for a cell widget."""
+    #     # assert index.isValid(), "Index must be valid"
 
-        if Qt.ItemDataRole.DisplayRole in roles or Qt.ItemDataRole.DisplayRole in roles or roles == []:
-            if cell_widget:= self._cell_widget_manager.getWidget(index):
-                text = self._links_model.attributeData(index, role=Qt.ItemDataRole.DisplayRole)
-                cell_widget.setText(f"{text}")
+    #     if Qt.ItemDataRole.DisplayRole in roles or Qt.ItemDataRole.DisplayRole in roles or roles == []:
+    #         if cell_widget:= self._cell_widget_manager.getWidget(index):
+    #             text = self._links_model.attributeData(index, role=Qt.ItemDataRole.DisplayRole)
+    #             cell_widget.setText(f"{text}")
 
     ## Selection handling   
     def setNodesSelectionModel(self, nodes_selection_model: QItemSelectionModel):

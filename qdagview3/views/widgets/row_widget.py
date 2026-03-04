@@ -33,6 +33,10 @@ class RowWidget(QGraphicsWidget):
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges, True)
 
+        self.title_widget = CellWidget()
+        self.title_widget.setText("Title")
+        self._header.layout().addItem(self.title_widget)
+
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: Any):
         match change:
             case QGraphicsItem.GraphicsItemChange.ItemScenePositionHasChanged:

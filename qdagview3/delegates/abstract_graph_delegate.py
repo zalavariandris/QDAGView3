@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Type
 
-from qtpy.QtCore import QObject, QModelIndex
+from qtpy.QtCore import QObject, QModelIndex, QAbstractItemModel, QPersistentModelIndex
 from qtpy.QtCore import Signal
 from qtpy.QtWidgets import QGraphicsScene, QGraphicsItem
 from qtpy.QtCore import QEvent, QPointF
@@ -9,9 +9,9 @@ from qtpy.QtCore import QEvent, QPointF
 from abc import ABC, abstractmethod, ABCMeta
 
 # generic types definitions for type hinting
-RowWidgetT =  Type[QGraphicsItem]
-CellWidgetT = Type[QGraphicsItem]
-LinkWidgetT = Type[QGraphicsItem]
+RowWidgetT =  QGraphicsItem
+CellWidgetT = QGraphicsItem
+LinkWidgetT = QGraphicsItem
 
 # 1. Create a combined metaclass
 class QABCMeta(type(QObject), ABCMeta):
@@ -23,7 +23,7 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
 
     ## Root widgets
     @abstractmethod
-    def createRowWidget(self, parent_widget: QGraphicsScene|RowWidgetT, index:QModelIndex) -> RowWidgetT:
+    def createRowWidget(self, parent_widget: RowWidgetT|None, index:QModelIndex) -> RowWidgetT:
         ...
 
     @abstractmethod
@@ -48,6 +48,16 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
     
     @abstractmethod
     def destroyLinkWidget(self, link_widget: LinkWidgetT, source_widget:RowWidgetT|None, target_widget:RowWidgetT|None)->bool:
+        ...
+
+    @abstractmethod
+    def setRowEditorData(self, row_widget:RowWidgetT, index:QModelIndex):
+        """Set the data for the row widget. This is called when a vertical header is updated of the nodes model."""
+        ...
+
+    @abstractmethod
+    def setRowModelData(self, row_widget:RowWidgetT, index:QModelIndex):
+        """Set the data for the vertical header. This is called when a row widget is edited."""
         ...
 
     @abstractmethod

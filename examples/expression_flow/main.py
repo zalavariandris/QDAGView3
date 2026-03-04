@@ -22,19 +22,13 @@ from qtpy.QtWidgets import (
 )
 
 from qdagview3.models.link_model import LinkModel
-from qdagview3.models.standard_nodes_model import StandardNodesModel
+from qdagview3.models.nodes_ports_model import NodesPortsModel
 
 from qdagview3.views.graph_view import GraphView
 from qdagview3.delegates.tree_graph_delegate import TreeGraphDelegate
 
 
-QGraphDataRole = Qt.ItemDataRole.UserRole+1
-
-from enum import IntEnum
-class GraphRole(IntEnum):
-    Node = 0
-    Inlet = 1
-    Outlet = 2
+from expression_delegate import ExpressionGraphDelegate, GraphRole, GraphDataRole
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -43,7 +37,7 @@ class MainWindow(QMainWindow):
         self.resize(960, 600)
 
         # - model -
-        self.nodes_model = StandardNodesModel(self)
+        self.nodes_model = NodesPortsModel(self)
         self.nodes_selection_model = QItemSelectionModel(self.nodes_model, self)
         self.link_model = LinkModel(self.nodes_model, self)
         self.link_selection_model = QItemSelectionModel(self.link_model, self)
@@ -51,12 +45,11 @@ class MainWindow(QMainWindow):
         # - populate with some initial data -
         n1 = self.add_node("Node1")
         n2 = self.add_node("Node2")
-        outlet = self.nodes_model.index(0, 0, n1)
+        outlet = self.nodes_model.index(1, 0, n1)
         inlet = self.nodes_model.index(0, 0, n2)
         self.link_model.add_link(outlet, inlet)
         
         # - graph view -
-        from expression_delegate import ExpressionGraphDelegate
         delegate = ExpressionGraphDelegate()
         self.graph_view = GraphView(delegate=delegate, parent=self)
         self.graph_view.setModel(self.link_model)
@@ -89,24 +82,12 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
     def add_node(self, name: str|None=None) -> QModelIndex|None:
-        row = self.nodes_model.rowCount(QModelIndex())
-        if not self.nodes_model.insertRows(row, 1, QModelIndex()):
-            return None
-        node_idx = self.nodes_model.index(row, 0, QModelIndex())
-        if name is not None:
-            self.nodes_model.setData(node_idx, name, Qt.ItemDataRole.EditRole)
-
-        self.nodes_model.insertRows(0, 1, node_idx)
-        inlet_idx = self.nodes_model.index(0, 0, node_idx)
-        self.nodes_model.setData(inlet_idx, "In", Qt.ItemDataRole.EditRole)
-        self.nodes_model.setData(inlet_idx, GraphRole.Inlet, QGraphDataRole)
-        self.nodes_model.insertRows(0, 1, node_idx)
-
-        outlet_idx = self.nodes_model.index(1, 0, node_idx)
-        self.nodes_model.setData(outlet_idx, "Out", Qt.ItemDataRole.EditRole)
-        self.nodes_model.setData(outlet_idx, GraphRole.Outlet, QGraphDataRole)
-        self.nodes_selection_model.setCurrentIndex(node_idx, QItemSelectionModel.SelectionFlag.SelectCurrent)
-        return node_idx
+        row_count = self.nodes_model.rowCount(QModelIndex())
+        self.nodes_model.appendNode(name or f"Node{row_count + 1}")
+        node_index = self.nodes_model.index(row_count, 0, QModelIndex())
+        self.nodes_model.appendInlet(node_index, "In")
+        self.nodes_model.appendOutlet(node_index, "Out")
+        return self.nodes_model.index(row_count, 0, QModelIndex())
 
     def link_selected(self) -> None:
         selected_rows = self.nodes_selection_model.selectedRows()

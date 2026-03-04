@@ -1,6 +1,6 @@
 import pytest
 from qdagview3.models.link_model import LinkModel
-from qdagview3.models.standard_nodes_model import StandardNodesModel
+from qdagview3.models.nodes_tree_model import NodesTreeModel
 
 from qtpy.QtCore import QModelIndex, Qt, QAbstractItemModel
 from qtpy.QtWidgets import QApplication
@@ -15,7 +15,7 @@ def qapp():
     yield app
 
 def test_blank_link_model():
-    nodes_model = StandardNodesModel()
+    nodes_model = NodesTreeModel()
     link_model = LinkModel(nodes_model)
     assert link_model.rowCount() == 0
     assert link_model.columnCount() == 2
@@ -24,7 +24,7 @@ def test_blank_link_model():
 
 def test_replace_nodes_model():
     # setup
-    nodes_model = StandardNodesModel()
+    nodes_model = NodesTreeModel()
     nodes_model.insertRows(0, 2)  # Add two nodes
     n1 = nodes_model.index(0, 0)
     n2 = nodes_model.index(1, 0)
@@ -37,14 +37,14 @@ def test_replace_nodes_model():
 
     # replace nodes model
     spy = QSignalSpy(link_model.nodesModelChanged)
-    new_nodes_model = StandardNodesModel()
+    new_nodes_model = NodesTreeModel()
     new_nodes_model.insertRows(0, 3)  # Add three nodes
     link_model.setNodesModel(new_nodes_model)
     assert link_model.rowCount() == 0
     assert len(spy) == 1
 
 def test_add_node(qapp):
-    nodes_model = StandardNodesModel()
+    nodes_model = NodesTreeModel()
     spy = QSignalSpy(nodes_model.rowsInserted)
     nodes_model.insertRows(0, 2)  # Add two nodes
     n1 = nodes_model.index(0, 0)
@@ -55,7 +55,7 @@ def test_add_node(qapp):
     assert spy[0] == [QModelIndex(), 0, 1]
 
 def test_add_remove_link(qapp):
-    nodes_model = StandardNodesModel()
+    nodes_model = NodesTreeModel()
     nodes_model.insertRows(0, 2)  # Add two nodes
     n1 = nodes_model.index(0, 0)
     n2 = nodes_model.index(1, 0)
@@ -91,7 +91,7 @@ def test_add_remove_link(qapp):
 
 def test_remove_connected_node():
     # setup
-    nodes_model = StandardNodesModel()
+    nodes_model = NodesTreeModel()
     nodes_model.insertRows(0, 3)  # Add two nodes
     n1 = nodes_model.index(0, 0)
     n2 = nodes_model.index(1, 0)

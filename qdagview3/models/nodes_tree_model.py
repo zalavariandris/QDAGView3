@@ -51,13 +51,13 @@ class StandardNodesItem:
             child.remove_column(column)
 
 
-class StandardNodesModel(QAbstractItemModel):
+class NodesTreeModel(QAbstractItemModel):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._headers: List[str] = ["Column 1"]
         self._root = StandardNodesItem(values=["Root"])
 
-    def _item_from_index(self, index: QModelIndex) -> StandardNodesItem:
+    def itemFromIndex(self, index: QModelIndex) -> StandardNodesItem:
         if index.isValid():
             return index.internalPointer()  # type: ignore[return-value]
         return self._root
@@ -66,18 +66,18 @@ class StandardNodesModel(QAbstractItemModel):
         if not self.hasIndex(row, column, parent):
             return QModelIndex()
 
-        parent_item = self._item_from_index(parent)
+        parent_item = self.itemFromIndex(parent)
         child_item = parent_item.child(row)
         if child_item is None:
             return QModelIndex()
 
         return self.createIndex(row, column, child_item)
 
-    def parent(self, index: QModelIndex) -> QModelIndex:
+    def parent(self, index: QModelIndex) -> QModelIndex: #type: ignore[override]
         if not index.isValid():
             return QModelIndex()
 
-        child_item = self._item_from_index(index)
+        child_item = self.itemFromIndex(index)
         parent_item = child_item.parent
 
         if parent_item is None or parent_item is self._root:
@@ -89,12 +89,12 @@ class StandardNodesModel(QAbstractItemModel):
         if parent.column() > 0:
             return 0
 
-        parent_item = self._item_from_index(parent)
+        parent_item = self.itemFromIndex(parent)
         return parent_item.child_count()
 
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
         if parent.isValid():
-            item = self._item_from_index(parent)
+            item = self.itemFromIndex(parent)
             return item.column_count()
         return len(self._headers)
 
@@ -105,7 +105,7 @@ class StandardNodesModel(QAbstractItemModel):
         if role not in (Qt.DisplayRole, Qt.EditRole):
             return None
 
-        item = self._item_from_index(index)
+        item = self.itemFromIndex(index)
         if 0 <= index.column() < len(item.values):
             return item.values[index.column()]
         return ""
@@ -114,7 +114,7 @@ class StandardNodesModel(QAbstractItemModel):
         if not index.isValid() or role != Qt.EditRole:
             return False
 
-        item = self._item_from_index(index)
+        item = self.itemFromIndex(index)
         if not (0 <= index.column() < len(item.values)):
             return False
 
@@ -143,12 +143,12 @@ class StandardNodesModel(QAbstractItemModel):
         value,
         role: int = Qt.EditRole,
     ) -> bool:
-        if orientation != Qt.Horizontal or role != Qt.EditRole:
+        if orientation != Qt.Orientation.Horizontal or role != Qt.ItemDataRole.EditRole:
             return False
         if not (0 <= section < len(self._headers)):
             return False
 
-        self._headers[section] = str(value)
+        self._headers[section, role] = str(value)
         self.headerDataChanged.emit(orientation, section, section)
         return True
 
@@ -156,7 +156,7 @@ class StandardNodesModel(QAbstractItemModel):
         if count <= 0:
             return False
 
-        parent_item = self._item_from_index(parent)
+        parent_item = self.itemFromIndex(parent)
         if row < 0 or row > parent_item.child_count():
             return False
 
@@ -172,7 +172,7 @@ class StandardNodesModel(QAbstractItemModel):
         if count <= 0:
             return False
 
-        parent_item = self._item_from_index(parent)
+        parent_item = self.itemFromIndex(parent)
         if row < 0 or row + count > parent_item.child_count():
             return False
 

@@ -48,6 +48,7 @@ class TreeGraphDelegate(AbstractGraphDelegate):
             case _:
                 raise TypeError("Parent widget must be a RowWidget or None")
         
+        widget.title_widget.setText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
         return widget
 
     def destroyRowWidget(self, parent_widget: RowWidget|None, widget: RowWidget)->bool:
@@ -122,6 +123,14 @@ class TreeGraphDelegate(AbstractGraphDelegate):
         scene = source_widget.scene() if source_widget else target_widget.scene()
         # Schedule widget for deletion to prevent memory leaks TODO:
         return True
+
+    def setRowEditorData(self, row_widget: RowWidget, index: QModelIndex):
+        print(f"Setting row editor data for index {index}, display role: {index.data(Qt.ItemDataRole.DisplayRole)}")
+        row_widget.title_widget.setText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
+
+    def setRowModelData(self, row_widget: RowWidget, index: QModelIndex):
+        model = index.model()
+        model.setData(index, row_widget.title_widget._text, Qt.ItemDataRole.EditRole)
 
     def setCellEditorData(self, cell:CellWidget, index:QModelIndex):
         print(f"Setting cell editor data for index {index}, display role: {index.data(Qt.ItemDataRole.DisplayRole)}")

@@ -21,7 +21,7 @@ from qtpy.QtWidgets import (
 )
 
 from qdagview3.models.link_model import LinkModel
-from qdagview3.models.standard_nodes_model import StandardNodesModel
+from qdagview3.models.nodes_tree_model import NodesTreeModel
 
 from qdagview3.views.graph_view import GraphView
 from qdagview3.delegates.tree_graph_delegate import TreeGraphDelegate
@@ -34,7 +34,7 @@ class MainWindow(QMainWindow):
         self.resize(960, 600)
 
         # - model -
-        self.nodes_model = StandardNodesModel(self)
+        self.nodes_model = NodesTreeModel(self)
         self.nodes_selection_model = QItemSelectionModel(self.nodes_model, self)
         self.link_model = LinkModel(self.nodes_model, self)
         self.link_selection_model = QItemSelectionModel(self.link_model, self)

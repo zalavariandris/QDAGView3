@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 from qdagview3.delegates.abstract_graph_delegate import AbstractGraphDelegate
 
+
 class CellWidget(QGraphicsTextItem):
     ...
 
@@ -35,6 +36,15 @@ class ExpressionWidget(QGraphicsItem):
         self._inlets = []
         self._outlets = []
         self._cells = []
+
+        self._title_text = ""
+
+    def setTitleText(self, text:str):
+        self._title_text = text
+        self.prepareGeometryChange()
+
+    def titleText(self) -> str:
+        return self._title_text
 
     def boundingRect(self) -> QRectF:
         if not self._cells:
@@ -61,6 +71,8 @@ class ExpressionWidget(QGraphicsItem):
 
         rect = self.boundingRect()
         painter.drawRoundedRect(rect, 4, 4)
+
+        painter.drawText(rect.adjusted(4, 2, -4, -2), Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter, self._title_text)
 
     def insertInlet(self, pos:int, inlet:InletWidget):
         inlet.setParentItem(self)
@@ -93,7 +105,7 @@ class ExpressionWidget(QGraphicsItem):
         self._arrange_cells()
 
     def _arrange_cells(self):
-        x = 0
+        x = 12 # Start with some padding to the left some room for the title
         for cell in self._cells:
             x += cell.boundingRect().width() + 2
             cell.setPos(x, 0)
@@ -115,8 +127,8 @@ class ExpressionWidget(QGraphicsItem):
     def _arrange_outlets(self):
         rect = self.boundingRect()
 
-        for inlet in self._inlets:
-            inlet.setPos(0, rect.bottom())
+        for outlet in self._outlets:
+            outlet.setPos(0, rect.bottom())
         
         # todo: since we are aranging item inside a rect, 
         # consider aligning items inside it as well
@@ -176,20 +188,33 @@ class LinkWidget(QGraphicsLineItem):
     def boundingRect(self) -> QRectF:
         return super().boundingRect()
 
+
+
+from qdagview3.models.nodes_ports_model import GraphRole, GraphDataRole
+
 class ExpressionGraphDelegate(AbstractGraphDelegate):
-    def _get_kind(self, index: QModelIndex) -> Literal["expression", "inlet", "outlet"]:
+    @staticmethod
+    def _normalize_role(index: QModelIndex) -> GraphRole:
+        role = index.data(GraphDataRole)
+        if role is not None:
+            return role
+        
+        print(f"Warning: index {index} does not have a GraphDataRole set, defaulting to role based on index structure")
         if not index.parent().isValid():
-            return "expression"
+            return GraphRole.Node
         elif index.parent().isValid() and not index.parent().parent().isValid():
-            return "inlet"
+            return GraphRole.Inlet # Default to inlet if role is not set TODO: enforce explicit setting?
         else:
             raise ValueError("Invalid index structure")
         
     def createRowWidget(self, parent_widget: ExpressionWidget|None, index:QModelIndex) -> ExpressionWidget|OutletWidget|InletWidget:
-        match self._get_kind(index):
-            case "expression":
-                return ExpressionWidget(parent=parent_widget)
-            case "inlet":
+        match self._normalize_role(index):
+            case GraphRole.Node:
+                widget = ExpressionWidget(parent=parent_widget)
+                widget.setTitleText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
+                return widget
+            
+            case GraphRole.Inlet:
                 inlet = InletWidget(parent=parent_widget)
                 parent_widget.insertInlet(0, inlet)
 
@@ -197,9 +222,14 @@ class ExpressionGraphDelegate(AbstractGraphDelegate):
                     self.portPositionChanged.emit(index)
                 inlet.scene_position_changed.connect(port_position_changed)
                 return inlet
-            case "outlet":
+            
+            case GraphRole.Outlet:
                 outlet = OutletWidget(parent=parent_widget)
                 parent_widget.insertOutlet(0, outlet)
+
+                def port_position_changed(index=index):
+                    self.portPositionChanged.emit(index)
+                outlet.scene_position_changed.connect(port_position_changed)
                 return outlet
             case _:
                 raise ValueError("Invalid index structure")
@@ -285,6 +315,13 @@ class ExpressionGraphDelegate(AbstractGraphDelegate):
         # Schedule widget for deletion to prevent memory leaks TODO:
         # widget.deleteLater()
         return True
+    
+    def setRowEditorData(self, row_widget:ExpressionWidget, index:QModelIndex):
+        """Set the data for the row widget. This is called when a vertical header is updated of the nodes model."""
+        ...
+    def setRowModelData(self, row_widget:ExpressionWidget, index:QModelIndex):
+        """Set the data for the vertical header. This is called when a row widget is edited."""
+        ...
 
     def setCellEditorData(self, cell:CellWidget, index:QModelIndex):
         print(f"Setting cell editor data for index {index}, display role: {index.data(Qt.ItemDataRole.DisplayRole)}")
