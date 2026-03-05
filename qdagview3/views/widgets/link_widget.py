@@ -18,7 +18,6 @@ class LinkWidgetStraight(QGraphicsItem):
 
         self._graphview = None
 
-    
     # manage cells
     def insertCell(self, pos:int, cell:CellWidget):
         self.__cells.insert(pos, cell)

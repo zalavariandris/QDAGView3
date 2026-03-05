@@ -354,7 +354,7 @@ class GraphView(QGraphicsView):
         assert self._links_model, "Model must be set before handling link data changes!"
         nodes_model = self._links_model.nodesModel()
         assert nodes_model is not None, "Link model must have a valid nodes model"
-        print(f"Handling link data changed, topleft: {topleft}, bottomright: {bottomright}, roles: {roles}")
+        # print(f"Handling link data changed, topleft: {topleft}, bottomright: {bottomright}, roles: {roles}")
         for row in range(topleft.row(), bottomright.row() + 1):
             link_index = self._links_model.index(row, 0, topleft.parent())
             assert link_index.isValid(), f"Invalid link index: {link_index}"
@@ -407,7 +407,7 @@ class GraphView(QGraphicsView):
         """Reposition all links connected to the moved port widget."""
         assert self._links_model, "Model must be set before handling port position changes!"
         link_indexes = self._links_model.linksConnectedTo(port_index)
-        print(f"Port index {port_index} position changed, updating connected links: {link_indexes}")
+        # print(f"Port index {port_index} position changed, updating connected links: {link_indexes}")
         for link_index in link_indexes:
             if link_widget := self._link_widget_manager.getWidget(link_index):
                 source_index = self._links_model.linkSource(link_index)
@@ -630,7 +630,7 @@ class GraphView(QGraphicsView):
 
     def _sync_node_selection_model(self):
         """update selection controller from scene selection"""
-        print("Syncing selection controller from scene selection...")
+        # print("Syncing selection controller from scene selection...")
         scene = self.scene()
         assert scene is not None
         if self._links_model and self._nodes_selection_model:
@@ -667,7 +667,7 @@ class GraphView(QGraphicsView):
 
     def _sync_link_selection_model(self):
         """update selection controller from scene selection"""
-        print("Syncing link selection model from scene selection...")
+        # print("Syncing link selection model from scene selection...")
         scene = self.scene()
         assert scene is not None
         if self._links_model and self._links_selection_model:
@@ -940,42 +940,47 @@ class GraphView(QGraphicsView):
             reset_linking_state()
             return
 
-
     def mouseDoubleClickEvent(self, event:QMouseEvent):
         assert self._links_model, "Model must be set before handling double click!"
-        index = self.attributeAt(QPoint(int(event.position().x()), int(event.position().y())))
+
+        attr_index = self.attributeAt(QPoint(int(event.position().x()), int(event.position().y())))
         
 
-        if index is None or not index.isValid():
-            idx = self._links_model.addNode(None)
-            if widget := self._row_widget_manager.getWidget(idx):
-                center = widget.boundingRect().center()
-                widget.setPos(self.mapToScene(event.position().toPoint())-center)
+        if attr_index and attr_index.isValid():
+            # Double click on an attribute cell
+            def onEditingFinished(editor:QLineEdit, cell_widget:CellWidget, index:QModelIndex):
+                self._delegate.setModelAttributeData(editor, self._links_model, index)
+                editor.deleteLater()
+                self._set_cell_data(index, roles=[Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
 
-            return
-            
-        def onEditingFinished(editor:QLineEdit, cell_widget:CellWidget, index:QModelIndex):
-            self._delegate.setModelAttributeData(editor, self._links_model, index)
-            editor.deleteLater()
-            self._set_cell_data(index, roles=[Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+            if cell_widget := self._cell_widget_manager.getWidget(attr_index):
+                option = QStyleOptionViewItem()
+                scene_rect = cell_widget.mapRectToScene(cell_widget.boundingRect())
+                view_poly:QPolygon = self.mapFromScene(scene_rect)
+                rect = view_poly.boundingRect()
+                option.rect = rect
+                option.state = QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_Active
+                
+                editor = self._delegate.createEditor(self, option, self._links_model, attr_index)
+                if editor:
+                    # Ensure the editor is properly positioned and shown
+                    editor.setParent(self)
+                    editor.setGeometry(rect)
+                    self._delegate.setAttributeEditorData(editor, attr_index)
+                    editor.show()  # Explicitly show the editor
+                    editor.setFocus(Qt.FocusReason.MouseFocusReason)
+                    editor.editingFinished.connect(
+                        lambda editor=editor, cell_widget=cell_widget, index=attr_index: 
+                        onEditingFinished(editor, cell_widget, index))
+        else:
+            ...
+            # # Double click on empty space
+            # idx = self._links_model.addNode(None)
+            # if widget := self._row_widget_manager.getWidget(idx):
+            #     center = widget.boundingRect().center()
+            #     widget.setPos(self.mapToScene(event.position().toPoint())-center)
 
-        if cell_widget := self._cell_widget_manager.getWidget(index):
-            option = QStyleOptionViewItem()
-            scene_rect = cell_widget.mapRectToScene(cell_widget.boundingRect())
-            view_poly:QPolygon = self.mapFromScene(scene_rect)
-            rect = view_poly.boundingRect()
-            option.rect = rect
-            option.state = QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_Active
-            
-            editor = self._delegate.createEditor(self, option, self._links_model, index)
-            if editor:
-                # Ensure the editor is properly positioned and shown
-                editor.setParent(self)
-                editor.setGeometry(rect)
-                self._delegate.setAttributeEditorData(editor, index)
-                editor.show()  # Explicitly show the editor
-                editor.setFocus(Qt.FocusReason.MouseFocusReason)
-                editor.editingFinished.connect(lambda editor=editor, cell_widget=cell_widget, index=index: onEditingFinished(editor, cell_widget, index))
+            # return
 
     # def dragEnterEvent(self, event)->None:
     #     if event.mimeData().hasFormat(GraphMimeType.InletData) or event.mimeData().hasFormat(GraphMimeType.OutletData):

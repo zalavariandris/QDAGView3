@@ -38,6 +38,9 @@ class NodeData:
     inlets: List[InletData] = field(default_factory=list)
     outlets: List[OutletData] = field(default_factory=list)
 
+    def set_expression(self, expression: str):
+        self.name = expression
+
 
 class SocketBasedNodesModel(QAbstractItemModel):
     def __init__(self, parent: Optional[QObject] = None) -> None:

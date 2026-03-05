@@ -3,11 +3,17 @@ from __future__ import annotations
 import sys
 from typing import List
 
-from qtpy.QtCore import QModelIndex, Qt, QItemSelection, QItemSelectionModel
+from qtpy.QtCore import (
+    QModelIndex, 
+    Qt, 
+    QItemSelection, 
+    QItemSelectionModel
+)
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QHBoxLayout,
+    QVBoxLayout,
     QHeaderView,
     QInputDialog,
     QLabel,
@@ -17,7 +23,6 @@ from qtpy.QtWidgets import (
     QToolBar,
     QTreeView,
     QListView,
-    QVBoxLayout,
     QWidget
 )
 
@@ -25,11 +30,17 @@ from qdagview3.models.link_model import LinkModel
 from qdagview3.models.socket_based_nodes_model import SocketBasedNodesModel
 
 from qdagview3.views.graph_view import GraphView
-from qdagview3.delegates.tree_graph_delegate import TreeGraphDelegate
 
-
+from expression_model import ExpressionsModel, ExpressionItem, InletItem, OutletItem
 from expression_delegate import ExpressionGraphDelegate, GraphRole, GraphDataRole
+from expression_inspector import ExpressionInspector
 
+# class ExpressionInspector(QWidget):
+#     def __init__(self, parent: QWidget | None = None):
+#         super().__init__(parent)
+#         layout = QVBoxLayout(self)
+#         self.title_label = QLabel("Select a node or link to see details", self)
+#         layout.addWidget(self.title_label)
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
@@ -38,17 +49,15 @@ class MainWindow(QMainWindow):
         self.resize(960, 600)
 
         # - model -
-        self.nodes_model = SocketBasedNodesModel(self)
+        self.nodes_model = ExpressionsModel(self)
         self.nodes_selection_model = QItemSelectionModel(self.nodes_model, self)
         self.link_model = LinkModel(self.nodes_model, self)
         self.link_selection_model = QItemSelectionModel(self.link_model, self)
 
         # - populate with some initial data -
-        n1 = self.add_node("Node1")
-        n2 = self.add_node("Node2")
-        outlet = self.nodes_model.index(1, 0, n1)
-        inlet = self.nodes_model.index(0, 0, n2)
-        self.link_model.add_link(outlet, inlet)
+        self.nodes_model.appendNode(ExpressionItem("Node1"))
+        self.nodes_model.appendNode(ExpressionItem("Node2"))
+        # self.link_model.add_link(outlet, inlet)
         
         # - graph view -
         delegate = ExpressionGraphDelegate()
@@ -68,6 +77,10 @@ class MainWindow(QMainWindow):
         # self.nodes_table.verticalHeader().setFixedWidth(100)
         # self.nodes_list.setHeaderHidden(False)
 
+        # - inspector -
+        self.inspector = ExpressionInspector(self.nodes_model, self)
+        self.nodes_selection_model.currentChanged.connect(lambda current, previous: self.inspector.show_row(current.row()))
+
         # - actions -
         toolbar = QToolBar("Actions", self)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
@@ -77,9 +90,10 @@ class MainWindow(QMainWindow):
 
         central = QWidget()
         layout = QHBoxLayout(central)
-
-        layout.addWidget(self.graph_view, 1)
         layout.addWidget(self.nodes_table, 0)
+        layout.addWidget(self.graph_view, 1)
+        layout.addWidget(self.inspector, 0)
+
         self.setCentralWidget(central)
 
     def add_node(self, name: str|None=None) -> QModelIndex|None:

@@ -9,91 +9,110 @@ import weakref
 
 GraphDataRole = Qt.ItemDataRole.UserRole+10
 
+
 from enum import StrEnum
 class GraphRole(StrEnum):
     Node = "Node"
     Inlet = "Inlet"
     Outlet = "Outlet"
 
-from contextlib import contextmanager
 
-@dataclass
 class RootItem:
-    _nodes: List[NodeItem] = field(default_factory=list)
-    _model: weakref.ref[StandardNodesModel] = field(default_factory=lambda: weakref.ref(None))
+    def __init__(self):
+        self._nodes: List[ExpressionItem] = []
+        self._model: weakref.ref[ExpressionsModel]|None = None
 
-    def model(self) -> StandardNodesModel|None:
-        return self._model()
-
-    @contextmanager
-    def insert_rows(self, parent: QModelIndex, row: int, count: int):
-        model = self._model()
-        if model is not None:
-            model.beginInsertRows(parent, row, row + count - 1)
-            try:
-                yield
-            finally:
-                model.endInsertRows()
+    def model(self) -> ExpressionsModel|None:
+        if self._model:
+            return self._model()
         else:
-            yield
-
-    def appendNode(self, node: NodeItem) -> None:
-        model = self._model()
+            return None
+    
+    def appendNode(self, node: ExpressionItem) -> bool:
+        if node.model() != self.model():
+            warnings.warn("Cannot add a node that belongs to a different model")
+            return False
+        model = self.model()
         if model is not None: model.beginInsertRows(QModelIndex(), len(self._nodes), len(self._nodes))
         self._nodes.append(node)
+        node._root = self
         if model is not None: model.endInsertRows()
+        return True
 
-    def removeNode(self, node: NodeItem) -> None:
+    def removeNode(self, node: ExpressionItem) -> None:
         if node in self._nodes:
             index = self._nodes.index(node)
-            model = self._model()
+            model = self.model()
             if model is not None: model.beginRemoveRows(QModelIndex(), index, index)
             self._nodes.remove(node)
             if model is not None: model.endRemoveRows()
 
-    @property
-    def nodes(self) -> List[NodeItem]:
+    def nodes(self) -> List[ExpressionItem]:
         return [_ for _ in self._nodes]
     
     
-@dataclass
-class NodeItem:
-    name: str
-    _graph: RootItem|None = None
-    _inlets: List[InletData] = field(default_factory=list)
-    _outlets: List[OutletData] = field(default_factory=list)
+class ExpressionItem:
+    def __init__(self, name:str, expression: str=""):
+        self._name = name
+        self._expression = expression
+        self._root: RootItem = RootItem()
+        self._inlets: List[InletItem] = []
+        self._outlets: List[OutletItem] = []
+        self.appendInlet(InletItem("In"))
+        self.appendOutlet(OutletItem("Out"))
 
-    @property
-    def model(self) -> StandardNodesModel|None:
-        if not self._graph:
+    def name(self) -> str:
+        return self._name
+
+    def setName(self, name: str) -> None:
+        self._name = name
+
+    def setExpression(self, expression: str) -> None:
+        self._expression = expression
+
+    def expression(self) -> str:
+        return self._expression
+
+    def model(self) -> ExpressionsModel|None:
+        if not self._root:
             return None
-        
-        return self._graph.model()
+        return self._root.model()
 
-    def appendInlet(self, inlet: InletData) -> None:
+    def appendInlet(self, inlet: InletItem) -> bool:
+        if inlet.model() != self.model():
+            warnings.warn("Cannot add an inlet that belongs to a different model")
+            return False
         model = self.model()
         if model is not None: model.beginInsertRows(model.indexFromItem(self), len(self._inlets), len(self._inlets))
         self._inlets.append(inlet)
         inlet._node = self
         if model is not None: model.endInsertRows()
+        return True
 
-    def appendOutlet(self, outlet: OutletData) -> None:
+    def appendOutlet(self, outlet: OutletItem) -> bool:
+        if outlet.model() != self.model():
+            warnings.warn("Cannot add an outlet that belongs to a different model")
+            return False
         model = self.model()
         if model is not None: model.beginInsertRows(model.indexFromItem(self), len(self._inlets) + len(self._outlets), len(self._inlets) + len(self._outlets))
         self._outlets.append(outlet)
         outlet._node = self
         if model is not None: model.endInsertRows()
+        return True
 
-    def removeInlet(self, inlet: InletData) -> None:
-        if inlet in self._inlets:
-            index = self._inlets.index(inlet)
-            model = self.model()
-            if model is not None: model.beginRemoveRows(model.indexFromItem(self), index, index)
-            self._inlets.remove(inlet)
-            inlet._node = None
-            if model is not None: model.endRemoveRows()
+    def removeInlet(self, inlet: InletItem) -> bool:
+        if inlet not in self._inlets:
+            return False
+        
+        index = self._inlets.index(inlet)
+        model = self.model()
+        if model is not None: model.beginRemoveRows(model.indexFromItem(self), index, index)
+        self._inlets.remove(inlet)
+        inlet._node = None
+        if model is not None: model.endRemoveRows()
+        return True
 
-    def removeOutlet(self, outlet: OutletData) -> None:
+    def removeOutlet(self, outlet: OutletItem) -> None:
         if outlet in self._outlets:
             index = self._outlets.index(outlet)
             model = self.model()
@@ -103,91 +122,68 @@ class NodeItem:
             if model is not None: model.endRemoveRows()
 
 
-@dataclass
-class InletData:
-    name: str
-    _node: NodeItem
+class InletItem:
+    def __init__(self, name: str):
+        self._name = name
+        self._node: ExpressionItem|None = None
 
-    def model(self) -> StandardNodesModel|None:
-        if self._node is None:
+    def model(self) -> ExpressionsModel|None:
+        if not self._node:
             return None
         return self._node.model()
     
+    def name(self) -> str:
+        return self._name
+    
+    def setName(self, name: str) -> None:
+        self._name = name
+    
 
-@dataclass
-class OutletData:
-    name: str
-    _node: NodeItem
+class OutletItem:
+    def __init__(self, name: str):
+        self._name = name
+        self._node: ExpressionItem|None = None
 
-    def model(self) -> StandardNodesModel|None:
-        if self._node is None:
+    def model(self) -> ExpressionsModel|None:
+        if not self._node:
             return None
         return self._node.model()
 
+    def name(self) -> str:
+        return self._name
+    
+    def setName(self, name: str) -> None:
+        self._name = name
+    
 
-
-class StandardNodesModel(QAbstractItemModel):
+class ExpressionsModel(QAbstractItemModel):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self._headers: List[str] = ["expression"]
         self._root = RootItem()
 
     # -- Custom methods for managing nodes and sockets --
-    def appendNode(self, node: NodeItem) -> bool:
-        parent = QModelIndex()
-        root = cast(RootItem, self.itemFromIndex(parent))
-        node_count = len(root._nodes)
-        self.beginInsertRows(parent, node_count, node_count)
-        root = cast(RootItem, self.itemFromIndex(parent))
-        root.appendNode(node)
-        
-        self.endInsertRows()
-        return True
-    
-    def appendInlet(self, node_index: QModelIndex, name:str) -> bool:
-        if not node_index.isValid():
-            return False
-        node = cast(NodeItem, self.itemFromIndex(node_index))
-        inlet_count = len(node._inlets)
-        self.beginInsertRows(node_index, inlet_count, inlet_count)
-        node = cast(NodeItem, self.itemFromIndex(node_index))
-        new_inlet = InletData(name=name, _node=node)
-        node._inlets.insert(inlet_count, new_inlet)
-        self.endInsertRows()
-        return True
-    
-    def appendOutlet(self, node_index: QModelIndex, name:str) -> bool:
-        if not node_index.isValid():
-            return False
-        node = cast(NodeItem, self.itemFromIndex(node_index))
-        outlet_count = len(node._outlets)
-        row = len(node._inlets) + outlet_count
-        self.beginInsertRows(node_index, row, row)
-        node = cast(NodeItem, self.itemFromIndex(node_index))
-        new_outlet = OutletData(name=name, _node=node)
-        node._outlets.insert(outlet_count, new_outlet)
-        self.endInsertRows()
-        return True
+    def appendNode(self, node: ExpressionItem) -> bool:
+        return self._root.appendNode(node)
 
     # -- QAbstractItemModel overrides --
-    def itemFromIndex(self, index: QModelIndex) -> RootItem|NodeItem|InletData|OutletData:
+    def itemFromIndex(self, index: QModelIndex) -> RootItem|ExpressionItem|InletItem|OutletItem:
         if index.isValid():
             return index.internalPointer()  # type: ignore[return-value]
         return self._root
 
-    def indexFromItem(self, item: RootItem|NodeItem|InletData|OutletData) -> QModelIndex:
+    def indexFromItem(self, item: RootItem|ExpressionItem|InletItem|OutletItem) -> QModelIndex:
         if isinstance(item, RootItem):
             return QModelIndex()
-        elif isinstance(item, NodeItem):
-            root = item._graph
+        elif isinstance(item, ExpressionItem):
+            root = item._root
             row = root._nodes.index(item)
             return self.createIndex(row, 0, item)
-        elif isinstance(item, InletData):
-            node = item._node
+        elif isinstance(item, InletItem):
+            node = cast(ExpressionItem, item._node)
             row = node._inlets.index(item)
             return self.createIndex(row, 0, item)
-        elif isinstance(item, OutletData):
-            node = item._node
+        elif isinstance(item, OutletItem):
+            node = cast(ExpressionItem, item._node)
             row = len(node._inlets) + node._outlets.index(item)
             return self.createIndex(row, 0, item)
         else:
@@ -196,14 +192,14 @@ class StandardNodesModel(QAbstractItemModel):
     def index(self, row: int, column: int, parent: QModelIndex = QModelIndex()) -> QModelIndex:  
         match self.itemFromIndex(parent):
             case RootItem():
-                root = self.itemFromIndex(parent)
+                root = self._root
                 if row < 0 or row >= len(root._nodes):
                     return QModelIndex()
                 node = root._nodes[row]
                 return self.createIndex(row, column, node)
             
-            case NodeItem():
-                node = self.itemFromIndex(parent)
+            case ExpressionItem():
+                node = cast(ExpressionItem, self.itemFromIndex(parent))
                 if row < 0 or row >= len(node._inlets) + len(node._outlets):
                     return QModelIndex()
                 if row < len(node._inlets):
@@ -213,7 +209,7 @@ class StandardNodesModel(QAbstractItemModel):
                     outlet = node._outlets[row - len(node._inlets)]
                     return self.createIndex(row, column, outlet)
                 
-            case InletData() | OutletData():
+            case InletItem() | OutletItem():
                 raise ValueError("Sockets cannot have children")
             case _:
                 raise TypeError(f"Unexpected item type: {self.itemFromIndex(parent)}")
@@ -224,19 +220,21 @@ class StandardNodesModel(QAbstractItemModel):
 
         child_item = self.itemFromIndex(index)
         match child_item:
-            case NodeItem():
+            case ExpressionItem():
                 return QModelIndex()
             
-            case InletData():
-                inlet = child_item
-                node = child_item._node
-                row = node._graph._nodes.index(node)
+            case InletItem():
+                inlet = cast(InletItem, child_item)
+                node = inlet._node
+                assert node is not None
+                row = node._root._nodes.index(node)
                 return self.createIndex(row, 0, node)
 
-            case OutletData():
-                outlet = child_item
-                node = child_item._node
-                row = node._graph._nodes.index(node)
+            case OutletItem():
+                outlet = cast(OutletItem, child_item)
+                node = outlet._node
+                assert node is not None
+                row = node._root._nodes.index(node)
                 return self.createIndex(row, 0, node)
 
             case _:
@@ -249,14 +247,14 @@ class StandardNodesModel(QAbstractItemModel):
                 root = item
                 return len(root._nodes)
             
-            case NodeItem():
+            case ExpressionItem():
                 node = item
                 return len(node._inlets) + len(node._outlets)
             
-            case InletData():
+            case InletItem():
                 return 0
 
-            case OutletData():
+            case OutletItem():
                 return 0
 
             case _:
@@ -266,20 +264,26 @@ class StandardNodesModel(QAbstractItemModel):
         item = self.itemFromIndex(parent)
         match item:
             case RootItem():
+                return 2
+            
+            case ExpressionItem():
                 return 1
             
-            case NodeItem():
-                return 1
-            
-            case InletData():
+            case InletItem():
                 return 1
 
-            case OutletData():
+            case OutletItem():
                 return 1
 
             case _:
                 raise TypeError(f"Unexpected item type: {item}")
-
+            
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> warnings.Any:
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+            return ["name", "expression"][section]
+        else:
+            return section
+    
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
@@ -291,21 +295,29 @@ class StandardNodesModel(QAbstractItemModel):
             return None
 
         item = self.itemFromIndex(index)
-        if isinstance(item, NodeItem):
+        if isinstance(item, ExpressionItem):
             if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-                return item.name
+                if index.column() == 0:
+                    return item.name()
+                elif index.column() == 1:
+                    return item.expression()
             elif role == GraphDataRole:
                 return GraphRole.Node
-        elif isinstance(item, InletData):
+            
+        elif isinstance(item, InletItem):
             if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-                return item.name
+                if index.column() == 0:
+                    return item.name()
             elif role == GraphDataRole:
                 return GraphRole.Inlet
-        elif isinstance(item, OutletData):
+            
+        elif isinstance(item, OutletItem):
             if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-                return item.name
+                if index.column() == 0:
+                    return item.name()
             elif role == GraphDataRole:
                 return GraphRole.Outlet
+            
         return None
 
     def setData(self, index: QModelIndex, value, role: int = Qt.ItemDataRole.EditRole) -> bool:
@@ -315,28 +327,40 @@ class StandardNodesModel(QAbstractItemModel):
         if role not in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
             return False
         
-        if index.column() != 0:
+        if index.column() >= 2:
             return False
 
         item = self.itemFromIndex(index)
         match item:
-            case NodeItem():
-                node = item
-                node.name = value if role == Qt.ItemDataRole.EditRole else str(value)
-                self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
-                return True
+            case ExpressionItem():
+                if index.column() == 0:
+                    node = cast(ExpressionItem, item)
+                    node.setName(value if role == Qt.ItemDataRole.EditRole else str(value))
+                    self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+                    return True
+                elif index.column() == 1:
+                    node = cast(ExpressionItem, item)
+                    node.setExpression(value if role == Qt.ItemDataRole.EditRole else str(value))
+                    self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+                    return True
             
-            case InletData():
-                inlet = item
-                inlet.name = value if role == Qt.ItemDataRole.EditRole else str(value)
-                self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
-                return True
+            case InletItem():
+                if index.column() == 0:
+                    inlet = cast(InletItem, item)
+                    inlet.setName(value if role == Qt.ItemDataRole.EditRole else str(value))
+                    self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+                    return True
+                elif index.column() == 1:
+                    return False
             
-            case OutletData():
-                outlet = item
-                outlet.name = value if role == Qt.ItemDataRole.EditRole else str(value)
-                self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
-                return True
+            case OutletItem():
+                if index.column() == 0:
+                    outlet = cast(OutletItem, item)
+                    outlet.setName(value if role == Qt.ItemDataRole.EditRole else str(value))
+                    self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+                    return True
+                elif index.column() == 1:
+                    return False
             
             case _:
                 return False
@@ -359,12 +383,12 @@ class StandardNodesModel(QAbstractItemModel):
                 # Adding a new node to the root
                 self.beginInsertRows(parent, row, row + count - 1)
                 for offset in range(count):
-                    new_node = NodeItem(name=f"Node {len(self._root._nodes)}", _graph=self._root)
+                    new_node = ExpressionItem(name=f"Node {len(self._root._nodes)}", _graph=self._root)
                     self._root._nodes.insert(row + offset, new_node)
                 self.endInsertRows()
                 return True
             
-            case NodeItem():
+            case ExpressionItem():
                 warnings.warn("Sockets should be added using insertInlet and insertOutlet methods")
                 return False
             case _:
@@ -387,7 +411,7 @@ class StandardNodesModel(QAbstractItemModel):
                 self.endRemoveRows()
                 return True
             
-            case NodeItem():
+            case ExpressionItem():
                 node = parent_item
                 if row < 0 or row + count > len(node._inlets) + len(node._outlets):
                     return False
