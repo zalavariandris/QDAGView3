@@ -121,6 +121,11 @@ class ExpressionItem:
             outlet._node = None
             if model is not None: model.endRemoveRows()
 
+    def inlets(self) -> List[InletItem]:
+        return [_ for _ in self._inlets]
+    
+    def outlets(self) -> List[OutletItem]:
+        return [_ for _ in self._outlets]
 
 class InletItem:
     def __init__(self, name: str):
@@ -288,8 +293,8 @@ class ExpressionsModel(QAbstractItemModel):
         if not index.isValid():
             return None
         
-        if index.column() != 0:
-            return None
+        if index.column() >= 2:
+            return False
         
         if role not in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole, GraphDataRole):
             return None
@@ -321,6 +326,7 @@ class ExpressionsModel(QAbstractItemModel):
         return None
 
     def setData(self, index: QModelIndex, value, role: int = Qt.ItemDataRole.EditRole) -> bool:
+        print(f"setData called with index={index.row()} {index.column()}, value={value}, role={role}")
         if not index.isValid():
             return False
 
@@ -338,6 +344,7 @@ class ExpressionsModel(QAbstractItemModel):
                     node.setName(value if role == Qt.ItemDataRole.EditRole else str(value))
                     self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
                     return True
+                
                 elif index.column() == 1:
                     node = cast(ExpressionItem, item)
                     node.setExpression(value if role == Qt.ItemDataRole.EditRole else str(value))
@@ -350,8 +357,7 @@ class ExpressionsModel(QAbstractItemModel):
                     inlet.setName(value if role == Qt.ItemDataRole.EditRole else str(value))
                     self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
                     return True
-                elif index.column() == 1:
-                    return False
+
             
             case OutletItem():
                 if index.column() == 0:
@@ -359,11 +365,10 @@ class ExpressionsModel(QAbstractItemModel):
                     outlet.setName(value if role == Qt.ItemDataRole.EditRole else str(value))
                     self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
                     return True
-                elif index.column() == 1:
-                    return False
+
             
-            case _:
-                return False
+
+        return False
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
         if not index.isValid():

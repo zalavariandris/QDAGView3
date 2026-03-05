@@ -55,9 +55,15 @@ class MainWindow(QMainWindow):
         self.link_selection_model = QItemSelectionModel(self.link_model, self)
 
         # - populate with some initial data -
-        self.nodes_model.appendNode(ExpressionItem("Node1"))
-        self.nodes_model.appendNode(ExpressionItem("Node2"))
-        # self.link_model.add_link(outlet, inlet)
+        n1 = ExpressionItem("Node1")
+        n2 = ExpressionItem("Node2")
+        self.nodes_model.appendNode(n1)
+        self.nodes_model.appendNode(n2)
+
+        self.link_model.add_link(
+            self.nodes_model.indexFromItem(n1.outlets()[0]),
+            self.nodes_model.indexFromItem(n2.inlets()[0]),
+        )
         
         # - graph view -
         delegate = ExpressionGraphDelegate()
@@ -67,7 +73,7 @@ class MainWindow(QMainWindow):
         self.graph_view.setLinksSelectionModel(self.link_selection_model)
 
         # - nodes list -
-        self.nodes_table = QListView(self)
+        self.nodes_table = QTableView(self)
         self.nodes_table.setModel(self.nodes_model)
         self.nodes_table.setSelectionModel(self.nodes_selection_model)
         # self.nodes_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.SelectedClicked)
