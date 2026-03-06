@@ -10,7 +10,7 @@ from qtpy.QtGui import (
     QFontMetricsF
 )
 from qtpy.QtWidgets import (
-    QStyle, QStyleOption,
+    QGraphicsSceneHoverEvent, QStyle, QStyleOption,
     QApplication, 
     QGraphicsLineItem,
     QGraphicsItem, 
@@ -44,31 +44,30 @@ class ExpressionWidget(QGraphicsItem):
         self._outlets = []
         self._cells = []
 
-        self._title_text = "-NODE-"
-
-    def _title_rect(self) -> QRectF:
-        font = self.scene().font() if self.scene() else QApplication.font()
-        metrics = QFontMetricsF(font)
-        text_rect = metrics.tightBoundingRect(self._title_text)
-        width = max(22.0, text_rect.width())
-        height = max(22.0, metrics.height())
-        return QRectF(0, 0, width, height)
+        self._title_item = QGraphicsTextItem(self)
+        self._title_item.setPlainText("-name-")
+        self._title_item.setParentItem(self)
+        self._position_title_item()
 
     def setTitleText(self, text:str):
-        self.prepareGeometryChange()
-        self._title_text = text
-        self.update()
+        self._title_item.setPlainText(text)
+        self._position_title_item()
 
     def titleText(self) -> str:
-        return self._title_text
+        return self._title_item.toPlainText()
+
+    def _position_title_item(self):
+        rect = self.boundingRect()
+        title_rect = self._title_item.boundingRect()
+        self._title_item.setPos(-title_rect.width(), rect.top())
 
     def boundingRect(self) -> QRectF:
-        rect = self._title_rect()
+        rect = QRectF(0, 0, 22, 22)
         
         for cell in self._cells:
             rect = rect.united(cell.mapRectToParent(cell.boundingRect()))
 
-        rect.adjust(-6, 2, 6, -2)
+        # rect.adjust(-6, 2, 6, -2)
         return rect
     
     def paint(self, painter: QPainter | None, option: QStyleOptionGraphicsItem | None, widget: QWidget | None = None) -> None:
@@ -86,8 +85,8 @@ class ExpressionWidget(QGraphicsItem):
         rect = self.boundingRect()
         painter.drawRoundedRect(rect, 4, 4)
 
-        title_rect = self._title_rect().translated(0, rect.top())
-        painter.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._title_text)
+        # title_rect = self._title_rect().translated(0, rect.top())
+        # painter.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._title_text)
 
     def insertInlet(self, pos:int, inlet:InletWidget):
         inlet.setParentItem(self)
@@ -129,7 +128,7 @@ class ExpressionWidget(QGraphicsItem):
 
     def _arrange_cells(self):
         self.prepareGeometryChange()
-        x = self._title_rect().right() + 2
+        x = 0
         for cell in self._cells:
             cell.setPos(x, 0)
             x += cell.boundingRect().width() + 2
@@ -139,6 +138,7 @@ class ExpressionWidget(QGraphicsItem):
         self.update()
 
     def _arrange_inlets(self):
+        print(f"arranging inlets len({len(self._inlets)})")
         rect = self.boundingRect()
         
         for inlet in self._inlets:
@@ -173,6 +173,27 @@ class InletWidget(QGraphicsObject, QGraphicsItem):
         super().__init__(parent)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges, True)
 
+        self.name_text_item = QGraphicsTextItem(self)
+        self.name_text_item.setPlainText("-inlet-")
+        self.name_text_item.setPos(0, -22)
+        self.name_text_item.setVisible(False)
+
+        self.setAcceptHoverEvents(True)
+
+    def hoverEnterEvent(self, event: QGraphicsSceneHoverEvent | None) -> None:
+        self.name_text_item.setVisible(True)
+        self.update()
+    
+    def hoverLeaveEvent(self, event: QGraphicsSceneHoverEvent | None) -> None:
+        self.name_text_item.setVisible(False)
+        self.update()
+
+    def setLabelText(self, text:str):
+        self.name_text_item.setPlainText(text)
+        fm = QFontMetricsF(self.name_text_item.font())
+        text_width = fm.width(text)
+        self.name_text_item.setPos(4, -fm.height()-4)
+
     def insertCell(self, pos:int, cell:CellWidget):
         cell.setParentItem(self)
         cell.setY(self.boundingRect().top()-cell.boundingRect().height())
@@ -199,9 +220,16 @@ class InletWidget(QGraphicsObject, QGraphicsItem):
         return super().itemChange(change, value)
 
 class OutletWidget(InletWidget):
-    def insertCell(self, pos:int, cell:CellWidget):
-        super().insertCell(pos, cell)
-        cell.setY(self.boundingRect().bottom())
+    def __init__(self, parent:QGraphicsItem|None=None):
+        super().__init__(parent)
+        self.name_text_item.setPlainText("-outlet-")
+        self.name_text_item.setPos(0, 0)
+
+    def setLabelText(self, text: str):
+        super().setLabelText(text)
+        fm = QFontMetricsF(self.name_text_item.font())
+        text_width = fm.width(text)
+        self.name_text_item.setPos(-text_width-4, self.boundingRect().bottom()-6)
 
 from qdagview3.views.utils.geo import makeArrowShape, makeVerticalRoundedPath
 

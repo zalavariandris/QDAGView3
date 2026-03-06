@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from typing import Literal
+from typing import Literal, cast
 
 from qtpy.QtCore import (
     Qt, QRectF, Signal, QLineF, QModelIndex, QPointF, QEvent, QPersistentModelIndex
@@ -59,7 +59,8 @@ class ExpressionGraphDelegate(AbstractGraphDelegate):
             
             case GraphRole.Inlet:
                 inlet = InletWidget(parent=parent_widget)
-                parent_widget.insertInlet(0, inlet)
+                inlet.setLabelText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
+                parent_widget.insertInlet(index.row(), inlet)
                 persistent_index = QPersistentModelIndex(index)
                 def port_position_changed(persistent_index=persistent_index):
                     index = QModelIndex(persistent_index)
@@ -69,7 +70,10 @@ class ExpressionGraphDelegate(AbstractGraphDelegate):
             
             case GraphRole.Outlet:
                 outlet = OutletWidget(parent=parent_widget)
-                parent_widget.insertOutlet(0, outlet)
+                outlet.setLabelText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
+                nodes_model = index.model()
+                inlets_count = len(nodes_model.inlets(index.parent())) #TODO: this is a bit awkward, we need to get the number of inlets to determine the position of the outlet, maybe we should store this information in the model instead?
+                parent_widget.insertOutlet(inlets_count+index.row(), outlet)
                 persistent_index = QPersistentModelIndex(index)
 
                 def port_position_changed(persistent_index=persistent_index):
@@ -88,8 +92,14 @@ class ExpressionGraphDelegate(AbstractGraphDelegate):
             case ExpressionWidget():
                 widget.setParentItem(None)
                 return True
-            
-            case InletWidget() | OutletWidget():
+            case InletWidget():
+                expr_widget = cast(ExpressionWidget, widget.parentItem())
+                expr_widget.removeInlet(widget)
+                widget.setParentItem(None)
+                return True
+            case OutletWidget():
+                expr_widget = cast(ExpressionWidget, widget.parentItem())
+                expr_widget.removeOutlet(widget)
                 widget.setParentItem(None)
                 return True
 
@@ -172,16 +182,21 @@ class ExpressionGraphDelegate(AbstractGraphDelegate):
         # widget.deleteLater()
         return True
     
-    def setRowEditorData(self, row_widget:ExpressionWidget, index:QModelIndex):
+    def setRowEditorData(self, row_widget:ExpressionWidget|InletWidget|OutletWidget, index:QModelIndex):
         """Set the data for the row widget. This is called when a vertical header is updated of the nodes model."""
-        row_widget.setTitleText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
+        print(f"Setting row editor data for row {index.row()}, index: {index}, display role: {index.data(Qt.ItemDataRole.DisplayRole)}")
+        match row_widget:
+            case ExpressionWidget():
+                row_widget.setTitleText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
+            case InletWidget() | OutletWidget():
+                row_widget.setLabelText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
 
     def setRowModelData(self, row_widget:ExpressionWidget, index:QModelIndex):
         """Set the data for the vertical header. This is called when a row widget is edited."""
         ...
 
     def setCellEditorData(self, cell:CellWidget, index:QModelIndex):
-        print(f"Setting cell editor data for index {index}, display role: {index.data(Qt.ItemDataRole.DisplayRole)}")
+        print(f"Setting cell editor data for index {index.row()},{index.column()}, display role: {index.data(Qt.ItemDataRole.DisplayRole)}")
         cell.setPlainText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
     
     def setCellModelData(self, cell:CellWidget, index:QModelIndex):

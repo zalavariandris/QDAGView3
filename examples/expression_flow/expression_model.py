@@ -53,13 +53,15 @@ def _group_consecutive_numbers_readable(numbers:list[int])->Iterable[range]:
             first = last = n
     yield range(first, last+1) # Yield the last group
 
+from collections import defaultdict
+
 
 class ExpressionsModel(QAbstractItemModel):
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         print("Initializing ExpressionsModel")
         self._nodes: List[str] = []
-        self._expressions: dict[str, str] = {}
+        self._node_data: defaultdict[str, dict[str, Any]] = defaultdict(dict)
         
     def insertNodes(self, pos: int, names: List[str]) -> bool:
         if pos < 0 or pos > len(self._nodes):
@@ -73,7 +75,7 @@ class ExpressionsModel(QAbstractItemModel):
         self.beginInsertRows(QModelIndex(), pos, pos + len(names) - 1)
         for i, name in enumerate(names, start=pos):
             self._nodes.insert(i, name)
-            self._expressions[name] = ""
+            self._node_data[name] = {"expression": "x+x"}
         self.endInsertRows()
         print("Inserted nodes:", names)
         return True
@@ -88,7 +90,7 @@ class ExpressionsModel(QAbstractItemModel):
             self.beginRemoveRows(QModelIndex(), continous_rows.start, continous_rows.stop - 1)
             for row in reversed(range(continous_rows.start, continous_rows.stop)):
                 node_name = self._nodes.pop(row)
-                del self._expressions[node_name]
+                del self._node_data[node_name]
             self.endRemoveRows()
         return True
 
@@ -125,7 +127,7 @@ class ExpressionsModel(QAbstractItemModel):
         return [self.index(i + inlet_count, 0, node_index) for i in range(len(outlet_names))]
         
     def _get_inlet_names(self, node_name: str) -> List[str]:
-        expression = self._expressions[node_name]
+        expression = self._node_data[node_name].get("expression", "")
         try:
             return find_unbounded_names(expression)
         except SyntaxError as e:
@@ -199,7 +201,7 @@ class ExpressionsModel(QAbstractItemModel):
                 if index.column() == 0:
                     return node_name
                 elif index.column() == 1:
-                    return self._expressions[node_name]
+                    return self._node_data[node_name].get("expression", "")
                 
             elif IsInlet:
                 node_name = index.internalPointer()
@@ -229,14 +231,14 @@ class ExpressionsModel(QAbstractItemModel):
             
         return None
 
-    def setData(self, node_index: QModelIndex, value, role: int = Qt.ItemDataRole.EditRole) -> bool:
-        if (node_index.isValid() 
-            and not node_index.parent().isValid() 
-            and node_index.column() == 1 
+    def setData(self, index: QModelIndex, value, role: int = Qt.ItemDataRole.EditRole) -> bool:
+        if (index.isValid() 
+            and not index.parent().isValid() 
+            and index.column() == 1 
             and role == Qt.ItemDataRole.EditRole
         ):
-            node_name = self._nodes[node_index.row()]
-            old_expression = self._expressions[node_name]
+            node_name = self._nodes[index.row()]
+            old_expression = self._node_data[node_name].get("expression", "")
             new_expression = str(value)
             if old_expression == new_expression:
                 return False
@@ -256,30 +258,30 @@ class ExpressionsModel(QAbstractItemModel):
                 new_unbound_names = []
 
             # Parent for begin/endInsert/RemoveRows must be column 0
-            parent_index = node_index.sibling(node_index.row(), 0)
+            node_index = index.sibling(index.row(), 0)
 
             if len(new_unbound_names) > len(old_unbound_names):
                 pos = len(old_unbound_names)
                 count = len(new_unbound_names) - len(old_unbound_names)
-                self.beginInsertRows(parent_index, pos, pos + count - 1)
-                self._expressions[node_name] = new_expression
+                self.beginInsertRows(node_index, pos, pos + count - 1)
+                self._node_data[node_name]["expression"] = new_expression
                 self.endInsertRows()
             elif len(new_unbound_names) < len(old_unbound_names):
                 pos = len(new_unbound_names)
                 count = len(old_unbound_names) - len(new_unbound_names)
-                self.beginRemoveRows(parent_index, pos, pos + count - 1)
-                self._expressions[node_name] = new_expression
+                self.beginRemoveRows(node_index, pos, pos + count - 1)
+                self._node_data[node_name]["expression"] = new_expression
                 self.endRemoveRows()
             else:
-                self._expressions[node_name] = new_expression
+                self._node_data[node_name]["expression"] = new_expression
 
-            for i, (old_name, new_name) in enumerate(zip(old_unbound_names, new_unbound_names)):
-                if old_name != new_name:
-                    expression_index = self.index(i, 1, node_index)
-                    self.dataChanged.emit(expression_index, expression_index, [Qt.ItemDataRole.DisplayRole])
+            # emit inlet data changed
+            first_inlet_index = self.index(0, 0, node_index)
+            last_inldet_index = self.index(len(new_unbound_names) - 1, 0, node_index)
+            self.dataChanged.emit(first_inlet_index, last_inldet_index, [Qt.ItemDataRole.DisplayRole])
             
             # emit expression changed
-            self.dataChanged.emit(node_index, node_index, [role])
+            self.dataChanged.emit(index, index, [role])
             return True
         
         return False

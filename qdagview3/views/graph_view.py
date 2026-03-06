@@ -205,13 +205,15 @@ class GraphView(QGraphicsView):
                 # This is a top-level node
                 row_widget = self._row_widget_manager.getWidget(row_index)
                 assert row_widget is not None, f"Failed to find widget for index: {row_index}"
+                self._delegate.destroyRowWidget(None, row_widget)
             else:
                 # This is a child node, so we need to find the parent widget
                 parent_widget = self._row_widget_manager.getWidget(parent)
                 assert parent_widget is not None, f"Failed to find parent widget for index: {parent}"
                 row_widget = self._row_widget_manager.getWidget(row_index)
                 assert row_widget is not None, f"Failed to find widget for index: {row_index}"
-
+                parent_widget = self._row_widget_manager.getWidget(parent)
+                self._delegate.destroyRowWidget(parent_widget, row_widget)
             # First remove widgets for child nodes recursively
             children_count = nodes_model.rowCount(row_index)
             self._on_nodes_about_to_be_removed(row_index, 0, children_count - 1)
@@ -472,6 +474,7 @@ class GraphView(QGraphicsView):
         for row in range(topleft.row(), bottomright.row() + 1):
             for col in range(topleft.column(), bottomright.column() + 1):
                 if col == 0:
+                    print(f"Updating row widget for row {row}, col {col}, index: {nodes_model.index(row, col, topleft.parent())}")
                     # update row widget
                     cell_index = nodes_model.index(row, col, topleft.parent())
                     row_widget = self._row_widget_manager.getWidget(cell_index)
