@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any, List, Optional
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Literal, cast
@@ -56,10 +57,15 @@ class ExpressionItem:
         self._name = name
         self._expression = expression
         self._root: RootItem = RootItem()
-        self._inlets: List[InletItem] = []
-        self._outlets: List[OutletItem] = []
-        self.appendInlet(InletItem("In"))
-        self.appendOutlet(OutletItem("Out"))
+
+    def __hash__(self):
+        return hash((self._name, self._root))
+
+    def inlets(self) -> List[InletItem]:
+        return [InletItem("In", self)]
+    
+    def outlets(self) -> List[OutletItem]:
+        return [OutletItem("Out", self)]
 
     def name(self) -> str:
         return self._name
@@ -78,59 +84,58 @@ class ExpressionItem:
             return None
         return self._root.model()
 
-    def appendInlet(self, inlet: InletItem) -> bool:
-        if inlet.model() != self.model():
-            warnings.warn("Cannot add an inlet that belongs to a different model")
-            return False
-        model = self.model()
-        if model is not None: model.beginInsertRows(model.indexFromItem(self), len(self._inlets), len(self._inlets))
-        self._inlets.append(inlet)
-        inlet._node = self
-        if model is not None: model.endInsertRows()
-        return True
+    # def appendInlet(self, inlet: InletItem) -> bool:
+    #     if inlet.model() != self.model():
+    #         warnings.warn("Cannot add an inlet that belongs to a different model")
+    #         return False
+    #     model = self.model()
+    #     if model is not None: model.beginInsertRows(model.indexFromItem(self), len(self._inlets), len(self._inlets))
+    #     self._inlets.append(inlet)
+    #     inlet._node = self
+    #     if model is not None: model.endInsertRows()
+    #     return True
 
-    def appendOutlet(self, outlet: OutletItem) -> bool:
-        if outlet.model() != self.model():
-            warnings.warn("Cannot add an outlet that belongs to a different model")
-            return False
-        model = self.model()
-        if model is not None: model.beginInsertRows(model.indexFromItem(self), len(self._inlets) + len(self._outlets), len(self._inlets) + len(self._outlets))
-        self._outlets.append(outlet)
-        outlet._node = self
-        if model is not None: model.endInsertRows()
-        return True
+    # def appendOutlet(self, outlet: OutletItem) -> bool:
+    #     if outlet.model() != self.model():
+    #         warnings.warn("Cannot add an outlet that belongs to a different model")
+    #         return False
+    #     model = self.model()
+    #     if model is not None: model.beginInsertRows(model.indexFromItem(self), len(self._inlets) + len(self._outlets), len(self._inlets) + len(self._outlets))
+    #     self._outlets.append(outlet)
+    #     outlet._node = self
+    #     if model is not None: model.endInsertRows()
+    #     return True
 
-    def removeInlet(self, inlet: InletItem) -> bool:
-        if inlet not in self._inlets:
-            return False
+    # def removeInlet(self, inlet: InletItem) -> bool:
+    #     if inlet not in self._inlets:
+    #         return False
         
-        index = self._inlets.index(inlet)
-        model = self.model()
-        if model is not None: model.beginRemoveRows(model.indexFromItem(self), index, index)
-        self._inlets.remove(inlet)
-        inlet._node = None
-        if model is not None: model.endRemoveRows()
-        return True
+    #     index = self._inlets.index(inlet)
+    #     model = self.model()
+    #     if model is not None: model.beginRemoveRows(model.indexFromItem(self), index, index)
+    #     self._inlets.remove(inlet)
+    #     inlet._node = None
+    #     if model is not None: model.endRemoveRows()
+    #     return True
 
-    def removeOutlet(self, outlet: OutletItem) -> None:
-        if outlet in self._outlets:
-            index = self._outlets.index(outlet)
-            model = self.model()
-            if model is not None: model.beginRemoveRows(model.indexFromItem(self), len(self._inlets) + index, len(self._inlets) + index)
-            self._outlets.remove(outlet)
-            outlet._node = None
-            if model is not None: model.endRemoveRows()
+    # def removeOutlet(self, outlet: OutletItem) -> None:
+    #     if outlet in self._outlets:
+    #         index = self._outlets.index(outlet)
+    #         model = self.model()
+    #         if model is not None: model.beginRemoveRows(model.indexFromItem(self), len(self._inlets) + index, len(self._inlets) + index)
+    #         self._outlets.remove(outlet)
+    #         outlet._node = None
+    #         if model is not None: model.endRemoveRows()
 
-    def inlets(self) -> List[InletItem]:
-        return [_ for _ in self._inlets]
-    
-    def outlets(self) -> List[OutletItem]:
-        return [_ for _ in self._outlets]
+
 
 class InletItem:
-    def __init__(self, name: str):
+    def __init__(self, name: str, node: ExpressionItem|None=None):
         self._name = name
-        self._node: ExpressionItem|None = None
+        self._node: ExpressionItem|None = node
+
+    def __hash__(self):
+        return hash((self._name, self._node))
 
     def model(self) -> ExpressionsModel|None:
         if not self._node:
@@ -145,9 +150,12 @@ class InletItem:
     
 
 class OutletItem:
-    def __init__(self, name: str):
+    def __init__(self, name: str, node: ExpressionItem|None=None):
         self._name = name
-        self._node: ExpressionItem|None = None
+        self._node: ExpressionItem|None = node
+
+    def __hash__(self):
+        return hash((self._name, self._node))
 
     def model(self) -> ExpressionsModel|None:
         if not self._node:
@@ -283,7 +291,7 @@ class ExpressionsModel(QAbstractItemModel):
             case _:
                 raise TypeError(f"Unexpected item type: {item}")
             
-    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> warnings.Any:
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
             return ["name", "expression"][section]
         else:
@@ -370,7 +378,7 @@ class ExpressionsModel(QAbstractItemModel):
 
         return False
 
-    def flags(self, index: QModelIndex) -> Qt.ItemFlags:
+    def flags(self, index: QModelIndex) -> Qt.ItemFlag:
         if not index.isValid():
             return Qt.ItemFlag.ItemIsEnabled
         return Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable

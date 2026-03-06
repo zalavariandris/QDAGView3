@@ -3,29 +3,15 @@ from __future__ import annotations
 import sys
 from typing import List
 
-from qtpy.QtCore import (
-    QModelIndex, 
-    Qt, 
-    QItemSelection, 
-    QItemSelectionModel
-)
 from qtpy.QtWidgets import (
-    QAbstractItemView,
     QApplication,
-    QHBoxLayout,
     QVBoxLayout,
-    QHeaderView,
-    QInputDialog,
     QLabel,
-    QMainWindow,
-    QMessageBox,
-    QTableView,
-    QToolBar,
-    QTreeView,
-    QListView,
     QWidget,
     QLineEdit
 )
+
+from qdagview3.evaluate_python import find_unbounded_names, format_exception
 
 class ExpressionWidget(QWidget):
     def __init__(self, parent: QWidget | None = None):
@@ -40,8 +26,15 @@ class ExpressionWidget(QWidget):
         self.setLayout(layout)
 
     def on_expression_changed(self, text: str):
-        # Here you can add logic to evaluate the expression and update the output
-        self.output.setText(f"Output: {text}")
+        try:
+            unbounded_names = find_unbounded_names(text)
+            if unbounded_names:
+                variables = list(filter(lambda name: str(name) not in dir(__builtins__), unbounded_names))
+                self.output.setText(f"Unbounded names: {', '.join(variables)}")
+            else:
+                self.output.setText(f"Output: {text}")
+        except Exception as e:
+            self.output.setText(f"Error: {format_exception(e)}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

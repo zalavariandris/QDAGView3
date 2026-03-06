@@ -205,7 +205,7 @@ class LinkWidget(QGraphicsLineItem):
             color = palette.highlight().color()
         else:
             color = palette.text().color()
-        print("painting link with color", color.name())
+
         painter.setPen(QPen(color, 2))
         arrow = makeVerticalRoundedPath(self.line(), 2)
         painter.drawPath(arrow)
