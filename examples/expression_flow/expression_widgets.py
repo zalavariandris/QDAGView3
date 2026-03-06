@@ -6,7 +6,8 @@ from qtpy.QtCore import (
 from qtpy.QtGui import (
     QPainter,
     QPen,
-    QPainterPath
+    QPainterPath,
+    QFontMetricsF
 )
 from qtpy.QtWidgets import (
     QStyle, QStyleOption,
@@ -23,7 +24,15 @@ from qdagview3.views.utils.qt import distribute_items
 
 
 class CellWidget(QGraphicsTextItem):
-    ...
+    def setPlainText(self, text: str) -> None:
+        parent = self.parentItem()
+        if isinstance(parent, ExpressionWidget):
+            parent.prepareGeometryChange()
+
+        super().setPlainText(text)
+
+        if isinstance(parent, ExpressionWidget):
+            parent.handleCellContentsChanged(self)
 
 class ExpressionWidget(QGraphicsItem):
     def __init__(self, parent:QGraphicsItem|None=None):
@@ -35,24 +44,31 @@ class ExpressionWidget(QGraphicsItem):
         self._outlets = []
         self._cells = []
 
-        self._title_text = ""
+        self._title_text = "-NODE-"
+
+    def _title_rect(self) -> QRectF:
+        font = self.scene().font() if self.scene() else QApplication.font()
+        metrics = QFontMetricsF(font)
+        text_rect = metrics.tightBoundingRect(self._title_text)
+        width = max(22.0, text_rect.width())
+        height = max(22.0, metrics.height())
+        return QRectF(0, 0, width, height)
 
     def setTitleText(self, text:str):
-        self._title_text = text
         self.prepareGeometryChange()
+        self._title_text = text
+        self.update()
 
     def titleText(self) -> str:
         return self._title_text
 
     def boundingRect(self) -> QRectF:
-        if not self._cells:
-            return QRectF(0, 0, 60, 22)
-        cell0 = self._cells[0]
-        rect = cell0.mapRectToParent(cell0.boundingRect())
-        for cell in self._cells[1:]:
+        rect = self._title_rect()
+        
+        for cell in self._cells:
             rect = rect.united(cell.mapRectToParent(cell.boundingRect()))
 
-        rect.adjust(-6, 2,6,-2)
+        rect.adjust(-6, 2, 6, -2)
         return rect
     
     def paint(self, painter: QPainter | None, option: QStyleOptionGraphicsItem | None, widget: QWidget | None = None) -> None:
@@ -70,7 +86,8 @@ class ExpressionWidget(QGraphicsItem):
         rect = self.boundingRect()
         painter.drawRoundedRect(rect, 4, 4)
 
-        painter.drawText(rect.adjusted(4, 2, -4, -2), Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter, self._title_text)
+        title_rect = self._title_rect().translated(0, rect.top())
+        painter.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._title_text)
 
     def insertInlet(self, pos:int, inlet:InletWidget):
         inlet.setParentItem(self)
@@ -93,21 +110,33 @@ class ExpressionWidget(QGraphicsItem):
         self._arrange_outlets()
 
     def insertCell(self, pos:int, cell:CellWidget):
+        self.prepareGeometryChange()
         cell.setParentItem(self)
         self._cells.insert(pos, cell)
         self._arrange_cells()
 
     def removeCell(self, cell:CellWidget):
+        self.prepareGeometryChange()
         cell.setParentItem(None)
         self._cells.remove(cell)
         self._arrange_cells()
 
+    def handleCellContentsChanged(self, cell: CellWidget):
+        if cell not in self._cells:
+            return
+
+        self._arrange_cells()
+
     def _arrange_cells(self):
-        x = 12 # Start with some padding to the left some room for the title
-        for cell in self._cells:
-            x += cell.boundingRect().width() + 2
-            cell.setPos(x, 0)
         self.prepareGeometryChange()
+        x = self._title_rect().right() + 2
+        for cell in self._cells:
+            cell.setPos(x, 0)
+            x += cell.boundingRect().width() + 2
+        
+        self._arrange_inlets()
+        self._arrange_outlets()
+        self.update()
 
     def _arrange_inlets(self):
         rect = self.boundingRect()

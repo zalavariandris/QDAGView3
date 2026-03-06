@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Literal
 
 from qtpy.QtCore import (
-    Qt, QRectF, Signal, QLineF, QModelIndex, QPointF, QEvent
+    Qt, QRectF, Signal, QLineF, QModelIndex, QPointF, QEvent, QPersistentModelIndex
 )
 from qtpy.QtGui import (
     QPainter,
@@ -60,8 +60,9 @@ class ExpressionGraphDelegate(AbstractGraphDelegate):
             case GraphRole.Inlet:
                 inlet = InletWidget(parent=parent_widget)
                 parent_widget.insertInlet(0, inlet)
-
-                def port_position_changed(index=index):
+                persistent_index = QPersistentModelIndex(index)
+                def port_position_changed(persistent_index=persistent_index):
+                    index = QModelIndex(persistent_index)
                     self.portPositionChanged.emit(index)
                 inlet.scene_position_changed.connect(port_position_changed)
                 return inlet
@@ -69,8 +70,10 @@ class ExpressionGraphDelegate(AbstractGraphDelegate):
             case GraphRole.Outlet:
                 outlet = OutletWidget(parent=parent_widget)
                 parent_widget.insertOutlet(0, outlet)
+                persistent_index = QPersistentModelIndex(index)
 
-                def port_position_changed(index=index):
+                def port_position_changed(persistent_index=persistent_index):
+                    index = QModelIndex(persistent_index)
                     self.portPositionChanged.emit(index)
                 outlet.scene_position_changed.connect(port_position_changed)
                 return outlet

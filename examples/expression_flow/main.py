@@ -27,11 +27,11 @@ from qtpy.QtWidgets import (
 )
 
 from qdagview3.models.link_model import LinkModel
-from qdagview3.models.socket_based_nodes_model import SocketBasedNodesModel
+# from qdagview3.models.socket_based_nodes_model import SocketBasedNodesModel
 
 from qdagview3.views.graph_view import GraphView
 
-from expression_model import ExpressionsModel, ExpressionItem, InletItem, OutletItem
+from expression_model import ExpressionsModel
 from expression_delegate import ExpressionGraphDelegate, GraphRole, GraphDataRole
 from expression_inspector import ExpressionInspector
 
@@ -43,8 +43,8 @@ from expression_inspector import ExpressionInspector
 #         layout.addWidget(self.title_label)
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self.setWindowTitle("Tree Model Editor")
         self.resize(960, 600)
 
@@ -55,15 +55,15 @@ class MainWindow(QMainWindow):
         self.link_selection_model = QItemSelectionModel(self.link_model, self)
 
         # - populate with some initial data -
-        n1 = ExpressionItem("Node1")
-        n2 = ExpressionItem("Node2")
-        self.nodes_model.appendNode(n1)
-        self.nodes_model.appendNode(n2)
 
-        self.link_model.add_link(
-            self.nodes_model.indexFromItem(n1.outlets()[0]),
-            self.nodes_model.indexFromItem(n2.inlets()[0]),
-        )
+        self.nodes_model.insertNodes(0, ["Node1", "Node2"])
+        n1 = self.nodes_model.index(0, 0, QModelIndex())
+        n2 = self.nodes_model.index(1, 0, QModelIndex())
+        assert n1.isValid() and n2.isValid(), "Failed to create initial nodes"
+        outlet = self.nodes_model.outlets(n1)[0]
+        # inlet = self.nodes_model.inlets(n2)[0]
+        # assert outlet.isValid() and inlet.isValid(), "Failed to create initial nodes with inlets/outlets"
+        # self.link_model.add_link(outlet, inlet)
         
         # - graph view -
         delegate = ExpressionGraphDelegate()
@@ -90,7 +90,7 @@ class MainWindow(QMainWindow):
         # - actions -
         toolbar = QToolBar("Actions", self)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
-        toolbar.addAction("Add Node", self.add_node)
+        toolbar.addAction("Add Node", self.add_expression)
         toolbar.addAction("Link Selected", self.link_selected)
         toolbar.addAction("Remove Selected", self.remove_selected)
 
@@ -102,13 +102,36 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
-    def add_node(self, name: str|None=None) -> QModelIndex|None:
-        row_count = self.nodes_model.rowCount(QModelIndex())
-        self.nodes_model.appendNode(name or f"Node{row_count + 1}")
-        node_index = self.nodes_model.index(row_count, 0, QModelIndex())
-        self.nodes_model.appendInlet(node_index, "In")
-        self.nodes_model.appendOutlet(node_index, "Out")
-        return self.nodes_model.index(row_count, 0, QModelIndex())
+    def add_expression(self, name: str|None=None) -> QModelIndex|None:
+        ...
+        nodes_count = self.nodes_model.rowCount(QModelIndex())
+        import re
+        from typing import Iterable
+        def make_unique_name(name:str, names:Iterable[str])->str:
+            # Regex to extract the name part (without trailing digits)
+            names = set(_ for _ in names)
+            match = re.search(r"(.*?)(\d*)$", name)
+            if match:
+                # Name part without digits
+                name_part = match.group(1)
+
+                # Loop to find a unique name
+                digit = 1
+                while name in names:
+                    # Append the current digit to the name part
+                    name = f"{name_part}{digit}"
+                    digit += 1
+
+            return name
+        all_nodes_names = [self.nodes_model.data(self.nodes_model.index(row, 0, QModelIndex()), Qt.DisplayRole) for row in range(nodes_count)]
+        unique_name = make_unique_name(name or "NewNode", all_nodes_names)
+        self.nodes_model.insertNodes(nodes_count, [unique_name])
+        # row_count = self.nodes_model.rowCount(QModelIndex())
+        # self.nodes_model.appendNode(name or f"Node{row_count + 1}")
+        # node_index = self.nodes_model.index(row_count, 0, QModelIndex())
+        # self.nodes_model.appendInlet(node_index, "In")
+        # self.nodes_model.appendOutlet(node_index, "Out")
+        # return self.nodes_model.index(row_count, 0, QModelIndex())
 
     def link_selected(self) -> None:
         selected_rows = self.nodes_selection_model.selectedRows()
@@ -177,12 +200,13 @@ class MainWindow(QMainWindow):
 
         self.link_model.remove_links(sorted(set(selected_rows)))
 
-def main() -> int:
+def main():
+    print("Starting application...")
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
-    return app.exec()
+    app.exec()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()
