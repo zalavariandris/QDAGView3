@@ -1,7 +1,10 @@
-from typing import *
+from typing import Callable, Dict, Any
 import inspect
+import ast
+import sys
 
-def store_function_args(func: Callable, **kwargs) -> dict[str, Any]:
+
+def store_function_args(func: Callable, **kwargs) -> Dict[str, Any]:
     """
     Store function arguments in a dictionary by parameter name.
     Only accepts keyword arguments for clarity and safety.
@@ -149,6 +152,40 @@ def find_unbounded_names(expr):
     finder.visit(tree)
     return [name for name in finder.unbounded_names if name not in _BUILTIN_NAMES]
 
+
+def replace_unbounded_names(expr: str, replacements: dict[str, str]) -> str:
+    """
+    Replace unbounded names in a Python expression with names from the replacements mapping.
+
+    Args:
+        expr: The Python expression as a string.
+        replacements: A dict mapping unbounded names to their replacement names.
+
+    Returns:
+        The expression string with unbounded names replaced.
+    """
+    class NameReplacer(ast.NodeTransformer):
+        def __init__(self, unbounded_names, replacements):
+            self.unbounded_names = set(unbounded_names)
+            self.replacements = replacements
+
+        def visit_Name(self, node):
+            if node.id in self.unbounded_names and node.id in self.replacements:
+                return ast.copy_location(ast.Name(id=self.replacements[node.id], ctx=node.ctx), node)
+            return node
+
+    # Find unbounded names
+    tree = ast.parse(expr, mode='eval')
+    finder = UnboundedNameFinder()
+    finder.visit(tree)
+    unbounded = finder.unbounded_names
+
+    # Replace names
+    replacer = NameReplacer(unbounded, replacements)
+    new_tree = replacer.visit(tree)
+    ast.fix_missing_locations(new_tree)
+    return ast.unparse(new_tree)
+
 import traceback
 def format_exception(err:Exception)->str:
     formatted_traceback = ''.join(traceback.TracebackException.from_exception(err).format())
@@ -164,3 +201,52 @@ def format_exception(err:Exception)->str:
     # # Alternatively, get just the line number from the last frame (where the exception was raised)
     # last_frame = tb.stack[-1]  # The last frame is where the exception occurred
     # print(f"  Line number of the exception: {last_frame.lineno}")
+
+def inderactive_demo():
+    from qtpy.QtWidgets import (
+        QApplication,
+        QVBoxLayout,
+        QLabel,
+        QWidget,
+        QLineEdit
+    )
+
+    class ExpressionWidget(QWidget):
+        def __init__(self, parent: QWidget | None = None):
+            super().__init__(parent)
+            layout = QVBoxLayout(self)
+            self.expression_input = QLineEdit()
+            self.expression_input.textChanged.connect(self.on_expression_changed)
+            self.variables_label = QLabel("Output will be shown here")
+            self.output_label = QLabel("Output Expression be shown here")
+
+            layout.addWidget(self.expression_input)
+            layout.addWidget(self.variables_label)
+            layout.addWidget(self.output_label)
+            self.setLayout(layout)
+
+        def on_expression_changed(self, text: str):
+            try:
+                unbounded_names = find_unbounded_names(text)
+                if unbounded_names:
+                    variables = list(filter(lambda name: str(name) not in dir(__builtins__), unbounded_names))
+                    self.variables_label.setText(f"Unbounded names: {', '.join(variables)}")
+
+                    replacements = dict()
+                    for name in variables:
+                        replacements[name] = f"<{name}_value>"
+                    replaced_expression = replace_unbounded_names(text, replacements)
+                    self.output_label.setText(f"Replaced expression: {replaced_expression}")
+                else:
+                    self.variables_label.setText(f"No unbounded names found.")
+
+                    
+            except Exception as e:
+                self.variables_label.setText(f"Error: {format_exception(e)}")
+    app = QApplication(sys.argv)
+    window = ExpressionWidget()
+    window.show()
+    app.exec()
+
+if __name__ == "__main__":
+    inderactive_demo()

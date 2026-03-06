@@ -3,7 +3,7 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "QDAGView2"
+name = "QDAGView3"
 version = "0.1.0"
 authors = [
     { name = "András Zalavári", email = "zalavariandris@gmail.com" }
@@ -17,10 +17,10 @@ dependencies = [
     "bidict"
 ]
 
-[tool.setuptools]
-packages = [
-    "qdagview3"
-]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["qdagview3", "qdagview3.*"]
+namespaces = false
 
 [tool.setuptools.exclude-package-data]
 "*" = ["__pycache__/*", ".venv_/*"]

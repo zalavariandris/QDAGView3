@@ -77,6 +77,8 @@ class GraphView(QGraphicsView):
         self._interaction_mode: Literal[None, "LINKING"] = None
         self._interaction_payload: Tuple[Any, Literal['outlet', 'inlet', 'tail', 'head']] = None
         self._draft_link = None
+        self._active_editor: QWidget | None = None
+        self._active_editor_index: QPersistentModelIndex | None = None
 
         # Widget Managers
         self._row_widget_manager = PersistentIndexWidgetManager()
@@ -394,7 +396,7 @@ class GraphView(QGraphicsView):
                 return self._link_widget_manager.getIndex(link_widget)
         return None
 
-    def attributeAt(self, point:QPoint) -> AttributeRef|None:
+    def cellAt(self, point:QPoint) -> QModelIndex|None:
         """
         Find the index at the given position.
         point is in untransformed viewport coordinates, just like QMouseEvent::pos().
@@ -479,12 +481,12 @@ class GraphView(QGraphicsView):
                     cell_index = nodes_model.index(row, col, topleft.parent())
                     row_widget = self._row_widget_manager.getWidget(cell_index)
                     if row_widget:
-                        self._delegate.setRowEditorData(row_widget, cell_index)
+                        self._delegate.setRowWidgetData(row_widget, cell_index)
                 else:
                     # update cell widget
                     cell_index = nodes_model.index(row, col, topleft.parent())
                     if cell_widget:=self._cell_widget_manager.getWidget(cell_index):
-                        self._delegate.setCellEditorData(cell_widget, cell_index)
+                        self._delegate.setCellWidgetData(cell_widget, cell_index)
 
     # def handleAttributeDataChanged(self, attributes:List[QPersistentModelIndex], roles:List[int]):
     #     for attribute in attributes:
@@ -943,47 +945,107 @@ class GraphView(QGraphicsView):
             reset_linking_state()
             return
 
-    def mouseDoubleClickEvent(self, event:QMouseEvent):
-        assert self._links_model, "Model must be set before handling double click!"
-
-        attr_index = self.attributeAt(QPoint(int(event.position().x()), int(event.position().y())))
+    def mouseDoubleClickEvent(self, event):
+        if self._links_model is None:
+            super().mouseDoubleClickEvent(event)
+            return
         
+        pos = event.position()
+        cell_index = self.cellAt(QPoint(int(pos.x()), int(pos.y())))
+        nodes_model = self._links_model.nodesModel()
 
-        if attr_index and attr_index.isValid():
-            # Double click on an attribute cell
-            def onEditingFinished(editor:QLineEdit, cell_widget:CellWidget, index:QModelIndex):
-                self._delegate.setModelAttributeData(editor, self._links_model, index)
-                editor.deleteLater()
-                self._set_cell_data(index, roles=[Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+        if cell_index and nodes_model.flags(cell_index) & Qt.ItemFlag.ItemIsEditable:
+            self._close_active_editor(commit=False)
+            option = QStyleOptionViewItem()
+            option.font = self.font()
+            option.palette = self.palette()
+            option.state = QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_Active
+            cell_widget = self._cell_widget_manager.getWidget(cell_index)
+            if not cell_widget:
+                super().mouseDoubleClickEvent(event)
+                return
+            scene_rect = cell_widget.mapToScene(cell_widget.boundingRect()).boundingRect()
+            option.rect = self.mapFromScene(scene_rect).boundingRect()
+            option.widget = self.viewport()
+            editor = self._delegate.createEditor(self.viewport(), option, cell_index)
+            editor.setGeometry(option.rect)
+            editor.setParent(self.viewport())
+            editor.raise_()
+            editor.installEventFilter(self)
+            self._active_editor = editor
+            self._active_editor_index = QPersistentModelIndex(cell_index)
+            self._delegate.setEditorData(editor, cell_index)
+            if isinstance(editor, QLineEdit):
+                editor.textEdited.connect(self._commit_active_editor)
+            editor.setFocus()
+            editor.show()
+            return
+        super().mouseDoubleClickEvent(event)
 
-            if cell_widget := self._cell_widget_manager.getWidget(attr_index):
-                option = QStyleOptionViewItem()
-                scene_rect = cell_widget.mapRectToScene(cell_widget.boundingRect())
-                view_poly:QPolygon = self.mapFromScene(scene_rect)
-                rect = view_poly.boundingRect()
-                option.rect = rect
-                option.state = QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_Active
-                
-                editor = self._delegate.createEditor(self, option, self._links_model, attr_index)
-                if editor:
-                    # Ensure the editor is properly positioned and shown
-                    editor.setParent(self)
-                    editor.setGeometry(rect)
-                    self._delegate.setAttributeEditorData(editor, attr_index)
-                    editor.show()  # Explicitly show the editor
-                    editor.setFocus(Qt.FocusReason.MouseFocusReason)
-                    editor.editingFinished.connect(
-                        lambda editor=editor, cell_widget=cell_widget, index=attr_index: 
-                        onEditingFinished(editor, cell_widget, index))
-        else:
-            ...
-            # # Double click on empty space
-            # idx = self._links_model.addNode(None)
-            # if widget := self._row_widget_manager.getWidget(idx):
-            #     center = widget.boundingRect().center()
-            #     widget.setPos(self.mapToScene(event.position().toPoint())-center)
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self._active_editor:
+            if event.type() == QEvent.Type.FocusOut:
+                self._close_active_editor(commit=True)
+                return False
+            if event.type() == QEvent.Type.KeyPress:
+                key_event = cast(QKeyEvent, event)
+                if key_event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    self._close_active_editor(commit=True)
+                    return True
+                if key_event.key() == Qt.Key.Key_Escape:
+                    self._close_active_editor(commit=False)
+                    return True
+        return super().eventFilter(watched, event)
 
-            # return
+    def _close_active_editor(self, commit: bool) -> None:
+        if self._active_editor is None:
+            return
+        editor = self._active_editor
+        editor_index = self._active_editor_index
+        self._active_editor = None
+        self._active_editor_index = None
+        editor.removeEventFilter(self)
+        if commit:
+            self._commit_editor(editor, editor_index)
+        editor.deleteLater()
+
+    def _commit_active_editor(self, *_args) -> None:
+        self._commit_editor(self._active_editor, self._active_editor_index)
+
+    def _commit_editor(self, editor: QWidget | None, editor_index: QPersistentModelIndex | None) -> None:
+        if editor is None or editor_index is None or not editor_index.isValid():
+            return
+        self._delegate.setModelData(editor, QModelIndex(editor_index))
+
+    def layout_nodes(self, orientation:Qt.Orientation=Qt.Orientation.Vertical, scale=(75, 75)):
+        """Layout nodes using the delegate's layout algorithm."""
+        try:
+            import networkx as nx
+        except ImportError:
+            warnings.warn("NetworkX is not installed. Please install it to use the layout feature.")
+            return
+        
+        if not self._links_model:
+            return nx.DiGraph()
+        
+        G = self._links_model.toNetworkX()
+
+        # Step 1: Assign layers manually or via algorithm
+        # For a DAG, we can use topological generations
+        for i, layer_nodes in enumerate(nx.topological_generations(G)):
+            for node in layer_nodes:
+                G.nodes[node]['layer'] = i
+
+        # Step 2: Use multipartite_layout
+        pos = nx.multipartite_layout(G, subset_key="layer")
+
+        for node_index, (x, y) in pos.items():
+            node_widget = self._row_widget_manager.getWidget(node_index)
+            if node_widget:
+                if orientation == Qt.Orientation.Vertical:
+                    node_widget.setPos(y*scale[0], x*scale[1])  # Scale positions for better spacing
+                else:
+                    node_widget.setPos(x*scale[0], y*scale[1])  # Scale positions for better spacing
 
     # def dragEnterEvent(self, event)->None:
     #     if event.mimeData().hasFormat(GraphMimeType.InletData) or event.mimeData().hasFormat(GraphMimeType.OutletData):

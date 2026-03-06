@@ -124,7 +124,7 @@ class TreeGraphDelegate(AbstractGraphDelegate):
         # Schedule widget for deletion to prevent memory leaks TODO:
         return True
 
-    def setRowEditorData(self, row_widget: RowWidget, index: QModelIndex):
+    def setRowWidgetData(self, row_widget: RowWidget, index: QModelIndex):
         print(f"Setting row editor data for index {index}, display role: {index.data(Qt.ItemDataRole.DisplayRole)}")
         row_widget.title_widget.setText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
 
@@ -132,7 +132,7 @@ class TreeGraphDelegate(AbstractGraphDelegate):
         model = index.model()
         model.setData(index, row_widget.title_widget._text, Qt.ItemDataRole.EditRole)
 
-    def setCellEditorData(self, cell:CellWidget, index:QModelIndex):
+    def setCellWidgetData(self, cell:CellWidget, index:QModelIndex):
         print(f"Setting cell editor data for index {index}, display role: {index.data(Qt.ItemDataRole.DisplayRole)}")
         cell.setText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
     

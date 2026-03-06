@@ -244,7 +244,7 @@ class LinkModel(QAbstractItemModel):
         persistent_index = self._links[link_index.row()].source
         return QModelIndex(persistent_index)
 
-    def linkTarget(self, index: QModelIndex) -> QModelIndex|None:
+    def linkTarget(self, index: QModelIndex) -> QModelIndex:
         assert isinstance(index, QModelIndex), f"index must be a QModelIndex instance, got {type(index)} instead"
         assert index.isValid(), f"index must be valid, got: {index}"
         assert index.column() == 0, f"index must be in column 0, got column {index.column()} instead"
@@ -318,4 +318,33 @@ class LinkModel(QAbstractItemModel):
             return index
         return index.sibling(index.row(), 0)
 
+    def toNetworkX(self)->'networkx.MultiDiGraph[QModelIndex]':
+        """return links between root_rows as a networkx MultiDiGraph"""
+        import networkx as nx
+        G = nx.MultiDiGraph()
+        nodes_model = self.nodesModel()
 
+        # for each endpoint, find the root node:
+        def get_index_root_node(idx:QModelIndex) -> QModelIndex:
+            while idx.parent().isValid():
+                idx = idx.parent()
+            return idx
+
+        for node_row in range(nodes_model.rowCount(QModelIndex())):
+            node_index = nodes_model.index(node_row, 0, QModelIndex())
+            node_index = get_index_root_node(node_index)
+
+            G.add_node(node_index, name=nodes_model.data(node_index, Qt.ItemDataRole.DisplayRole))
+
+        for link_row in range(self.rowCount(QModelIndex())):
+            link_index = self.index(link_row, 0, QModelIndex())
+
+            source_index = self.linkSource(link_index)
+            target_index = self.linkTarget(link_index)
+
+            source_index = get_index_root_node(source_index)
+            target_index = get_index_root_node(target_index)
+
+            G.add_edge(source_index, target_index)
+
+        return G

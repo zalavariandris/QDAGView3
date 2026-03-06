@@ -1,12 +1,27 @@
 from abc import ABC, abstractmethod
 from typing import Literal, Type
 
-from qtpy.QtCore import QObject, QModelIndex, QAbstractItemModel, QPersistentModelIndex
-from qtpy.QtCore import Signal
-from qtpy.QtWidgets import QGraphicsScene, QGraphicsItem
-from qtpy.QtCore import QEvent, QPointF
+from qtpy.QtCore import (
+    QObject, 
+    QModelIndex, 
+    QAbstractItemModel, 
+    QPersistentModelIndex,
+    Signal,
+    Qt
+)
+from qtpy.QtWidgets import (
+    QGraphicsScene, 
+    QGraphicsItem, 
+    QStyleOptionViewItem,
+    QWidget, QLineEdit
+)
+from qtpy.QtCore import (
+    QEvent, 
+    QPointF
+)
 
 from abc import ABC, abstractmethod, ABCMeta
+from qdagview3.views.widgets.fitting_line_edit import FittingLineEdit
 
 # generic types definitions for type hinting
 RowWidgetT =  QGraphicsItem
@@ -51,7 +66,7 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
         ...
 
     @abstractmethod
-    def setRowEditorData(self, row_widget:RowWidgetT, index:QModelIndex):
+    def setRowWidgetData(self, row_widget:RowWidgetT, index:QModelIndex):
         """Set the data for the row widget. This is called when a vertical header is updated of the nodes model."""
         ...
 
@@ -61,7 +76,7 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
         ...
 
     @abstractmethod
-    def setCellEditorData(self, cell:CellWidgetT, index:QModelIndex):
+    def setCellWidgetData(self, cell:CellWidgetT, index:QModelIndex):
         ...
     
     @abstractmethod
@@ -81,3 +96,25 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
     def canAcceptLink(self, start_index: QModelIndex, end_index: QModelIndex, start_widget:RowWidgetT|None=None, end_widget:RowWidgetT|None=None, event:QEvent|None=None) -> bool:
         return True
         
+    def createEditor(self, parent_widget:'QDAGView', option:QStyleOptionViewItem, index:QModelIndex) -> QWidget:
+        """Create an editor for the given index. This is called when a cell widget is double-clicked."""
+        return FittingLineEdit(parent_widget)
+    
+    def setEditorData(self, editor: QWidget, index: QModelIndex):
+        """Set the data for the editor. This is called when an editor is created."""
+        if isinstance(editor, QLineEdit):
+            value = index.data(Qt.ItemDataRole.EditRole)
+            if value is None:
+                value = index.data(Qt.ItemDataRole.DisplayRole)
+            editor.setText("" if value is None else str(value))
+            editor.selectAll()
+
+    def setModelData(self, editor: QWidget, index: QModelIndex):
+        """Set the data for the model. This is called when an editor is closed."""
+        if not index.isValid():
+            return
+        model = index.model()
+        if model is None:
+            return
+        if isinstance(editor, QLineEdit):
+            model.setData(index, editor.text(), Qt.ItemDataRole.EditRole)
