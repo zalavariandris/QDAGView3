@@ -43,7 +43,7 @@ class LinkModel(QAbstractItemModel):
             return QModelIndex()
         return self.createIndex(row, column)
 
-    def parent(self, child: QModelIndex) -> QModelIndex:
+    def parent(self, child: QModelIndex) -> QModelIndex: #type: ignore[override]
         del child
         return QModelIndex()
 
@@ -163,7 +163,7 @@ class LinkModel(QAbstractItemModel):
         self._nodes_model = None
         self.clear_links()
 
-    def add_link(self, source: QModelIndex, target: QModelIndex) -> int:
+    def add_link(self, source: QModelIndex, target: QModelIndex) -> bool:
         """Append a link and return its row index.
 
         Both source and target are normalized to column 0 before persisting.
@@ -177,7 +177,7 @@ class LinkModel(QAbstractItemModel):
         target_col0 = self._normalize_to_column0(target)
 
         if not self._is_valid_node_index(source_col0) or not self._is_valid_node_index(target_col0):
-            return -1
+            return False
 
         row = len(self._links)
         self.beginInsertRows(QModelIndex(), row, row)
@@ -188,7 +188,7 @@ class LinkModel(QAbstractItemModel):
             )
         )
         self.endInsertRows()
-        return row
+        return True
 
     def set_link(self, row: int, source: QModelIndex, target: QModelIndex) -> bool:
         if not (0 <= row < len(self._links)):

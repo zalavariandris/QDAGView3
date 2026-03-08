@@ -85,6 +85,8 @@ class GraphView(QGraphicsView):
         self._link_widget_manager = PersistentIndexWidgetManager()
         self._cell_widget_manager = PersistentIndexWidgetManager()
 
+        self._is_column_hidden: dict[int, bool] = {}
+
         # setup the view
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         self.setAcceptDrops(True)
@@ -129,7 +131,7 @@ class GraphView(QGraphicsView):
                     # (nodes_model.rowsRemoved,            self.handleNodesRemoved),
                     
                     (nodes_model.dataChanged,             self._on_nodes_data_changed),
-                    # (nodes_model.headerDataChanged,       self._on_nodes_header_data_changed),
+                    (nodes_model.headerDataChanged,       self._on_nodes_header_data_changed),
                 ]
                 for signal, slot in nodes_model_connections:
                     signal.connect(slot)
@@ -168,7 +170,6 @@ class GraphView(QGraphicsView):
         nodes_model = self._links_model.nodesModel()
         assert nodes_model is not None, "Link model must have a valid nodes model"
 
-
         for row in range(first, last + 1):
             row_index = nodes_model.index(row, 0, parent)
             if not parent.isValid():
@@ -182,6 +183,7 @@ class GraphView(QGraphicsView):
                 parent_widget = self._row_widget_manager.getWidget(parent)
                 assert parent_widget is not None, f"Failed to find parent widget for index: {parent}"
                 row_widget = self._delegate.createRowWidget(parent_widget, row_index)
+                
                 scene = self.scene()
                 assert scene is not None
                 scene.addItem(row_widget)
@@ -189,8 +191,8 @@ class GraphView(QGraphicsView):
             self._row_widget_manager.insertWidget(row_index, row_widget)
 
             # create cell widgets
-            column_count = nodes_model.columnCount(row_index)
-            self._handle_cells_inserted(row_index, 1, column_count - 1) # Note: Start from column1 to skip the title column which is handled by the row widget itself
+            column_count = nodes_model.columnCount(row_index.parent())
+            self._handle_cells_inserted(row_index, 0, column_count - 1) # Note: Start from column1 to skip the title column which is handled by the row widget itself
 
             # Now that the row widget is created, we can create widgets for the child nodes recursively
             children_count = nodes_model.rowCount(row_index)
@@ -211,10 +213,11 @@ class GraphView(QGraphicsView):
             else:
                 # This is a child node, so we need to find the parent widget
                 parent_widget = self._row_widget_manager.getWidget(parent)
-                assert parent_widget is not None, f"Failed to find parent widget for index: {parent}"
+                assert parent_widget is not None, f"Failed to find parent widget for index: {parent.row()}"
                 row_widget = self._row_widget_manager.getWidget(row_index)
-                assert row_widget is not None, f"Failed to find widget for index: {row_index}"
+                assert row_widget is not None, f"Failed to find row widget for index: {row_index.row()}"
                 parent_widget = self._row_widget_manager.getWidget(parent)
+                assert parent_widget is not None, f"Failed to find parent widget for index: {parent.row()}"
                 self._delegate.destroyRowWidget(parent_widget, row_widget)
             # First remove widgets for child nodes recursively
             children_count = nodes_model.rowCount(row_index)
@@ -247,9 +250,15 @@ class GraphView(QGraphicsView):
                 row_widget = self._row_widget_manager.getWidget(row_index)
                 cell_widget = self._delegate.createCellWidget(row_widget, cell_index)
                 self._cell_widget_manager.insertWidget(cell_index, cell_widget)
+
+                if self.isColumnHidden(column):
+                    cell_widget.setVisible(True)
+
+
                 scene = self.scene()
                 assert scene is not None
-                scene.addItem(cell_widget)
+                if cell_widget.scene() is None:
+                    scene.addItem(cell_widget)
 
     def _on_nodes_columns_about_to_be_removed(self, parent:QModelIndex, first: int, last: int):
         assert self._links_model, "Model must be set before handling node insertions!"
@@ -449,22 +458,23 @@ class GraphView(QGraphicsView):
 
         link_widget.update()
 
-    # def _on_nodes_header_data_changed(self, orientation:Qt.Orientation, first:int, last:int):
-    #     assert self._links_model is not None, "Model must be set before handling node data changes!"
-    #     nodes_model = self._links_model.nodesModel()
-    #     assert nodes_model is not None, "Link model must have a valid nodes model"
+    def _on_nodes_header_data_changed(self, orientation:Qt.Orientation, first:int, last:int):
+        assert self._links_model is not None, "Model must be set before handling node data changes!"
+        nodes_model = self._links_model.nodesModel()
+        assert nodes_model is not None, "Link model must have a valid nodes model"
 
-    #     # update node widgets
-    #     for row in range(first, last + 1):
-    #         first_cell_index = nodes_model.index(row, 0, QModelIndex())
-    #         # Note: Currently the row represents a node. But we refer to it by the firt cell index.
-    #         # consider refactoring, to have the first cell index be a direct representation of the node. the subsequent cell would be additional cells.
-    #         # TODO: this needs a proper documentation, and also needs a review.
+        # update node widgets
+        for row in range(first, last + 1):
+            first_cell_index = nodes_model.index(row, 0, QModelIndex())
+            # Note: Currently the row represents a node. But we refer to it by the firt cell index.
+            # consider refactoring, to have the first cell index be a direct representation of the node. the subsequent cell would be additional cells.
+            # TODO: this needs a proper documentation, and also needs a review.
             
-    #         row_widget = self._row_widget_manager.getWidget(first_cell_index)
-    #         if row_widget:
-    #             nodes_model = self._links_model.nodesModel()
-    #             self._delegate.setRowEditorData(row_widget, row, nodes_model)
+            row_widget = self._row_widget_manager.getWidget(first_cell_index)
+            if row_widget:
+                nodes_model = self._links_model.nodesModel()
+                self._delegate.setHeaderWidgetData(row_widget, first_cell_index)
+
         
     ## Handle attributes data changes
     def _on_nodes_data_changed(self, topleft:QModelIndex, bottomright:QModelIndex, roles:List[int]):
@@ -475,18 +485,10 @@ class GraphView(QGraphicsView):
         # update cell widgets
         for row in range(topleft.row(), bottomright.row() + 1):
             for col in range(topleft.column(), bottomright.column() + 1):
-                if col == 0:
-                    print(f"Updating row widget for row {row}, col {col}, index: {nodes_model.index(row, col, topleft.parent())}")
-                    # update row widget
-                    cell_index = nodes_model.index(row, col, topleft.parent())
-                    row_widget = self._row_widget_manager.getWidget(cell_index)
-                    if row_widget:
-                        self._delegate.setRowWidgetData(row_widget, cell_index)
-                else:
-                    # update cell widget
-                    cell_index = nodes_model.index(row, col, topleft.parent())
-                    if cell_widget:=self._cell_widget_manager.getWidget(cell_index):
-                        self._delegate.setCellWidgetData(cell_widget, cell_index)
+                # update cell widget
+                cell_index = nodes_model.index(row, col, topleft.parent())
+                if cell_widget:=self._cell_widget_manager.getWidget(cell_index):
+                    self._delegate.setCellWidgetData(cell_widget, cell_index)
 
     # def handleAttributeDataChanged(self, attributes:List[QPersistentModelIndex], roles:List[int]):
     #     for attribute in attributes:
@@ -1047,6 +1049,32 @@ class GraphView(QGraphicsView):
                 else:
                     node_widget.setPos(x*scale[0], y*scale[1])  # Scale positions for better spacing
 
+    def isColumnHidden(self, column:int) -> bool:
+        """Check if a column is hidden."""
+        return self._is_column_hidden.get(column, False)
+    
+    def setColumnHidden(self, column:int, hidden:bool):
+        """Called when a column is hidden or shown. Override this method to implement custom logic."""
+        self._is_column_hidden[column] = hidden
+        if self._links_model is None:
+            return
+        nodes_model = self._links_model.nodesModel()
+        if nodes_model is None:
+            return
+        for row in range(self._links_model.nodesModel().rowCount()):
+            cell_index = self._links_model.nodesModel().index(row, column)
+            row_index = cell_index.siblingAtColumn(0)
+            row_widget = self._row_widget_manager.getWidget(row_index)
+            if not row_widget:
+                continue
+            row_widget.prepareGeometryChange()
+            
+            if cell_widget := self._cell_widget_manager.getWidget(cell_index):
+                cell_widget.setVisible(not hidden)
+            row_widget.update_layout()
+            
+            
+         
     # def dragEnterEvent(self, event)->None:
     #     if event.mimeData().hasFormat(GraphMimeType.InletData) or event.mimeData().hasFormat(GraphMimeType.OutletData):
     #         # Create a draft link if the mime data is for inlets or outlets

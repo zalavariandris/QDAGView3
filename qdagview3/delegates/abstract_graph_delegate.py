@@ -66,12 +66,12 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
         ...
 
     @abstractmethod
-    def setRowWidgetData(self, row_widget:RowWidgetT, index:QModelIndex):
+    def setHeaderWidgetData(self, row_widget:RowWidgetT, index:QModelIndex):
         """Set the data for the row widget. This is called when a vertical header is updated of the nodes model."""
         ...
 
     @abstractmethod
-    def setRowModelData(self, row_widget:RowWidgetT, index:QModelIndex):
+    def setHeaderModelData(self, row_widget:RowWidgetT, index:QModelIndex):
         """Set the data for the vertical header. This is called when a row widget is edited."""
         ...
 
