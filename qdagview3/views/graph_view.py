@@ -16,9 +16,56 @@ import networkx as nx
 
 logger = logging.getLogger(__name__)
 
-from qtpy.QtGui import *
-from qtpy.QtCore import *
-from qtpy.QtWidgets import *
+from qtpy.QtCore import (
+    QObject, 
+    Qt, 
+    Signal, 
+    Slot, 
+    QModelIndex, 
+    QItemSelectionModel, 
+    QItemSelection, 
+    QPersistentModelIndex,
+    QPoint,
+    QEvent,
+    QRectF,
+    QPointF,
+    QLineF
+)
+from qtpy.QtGui import (
+    QPainter, 
+    QPen, 
+    QBrush, 
+    QColor, 
+    QTransform, 
+    QMouseEvent, 
+    QWheelEvent, 
+    QKeyEvent, 
+    QContextMenuEvent, 
+    QDragEnterEvent, 
+    QDragMoveEvent, 
+    QDropEvent, 
+    QPainterPath, 
+    QPolygonF, 
+    QPainterPath, 
+    QCursor, 
+    QFont, 
+    QFontMetrics, 
+    QPixmap,
+
+    
+)
+from qtpy.QtWidgets import (
+    QGraphicsView, 
+    QGraphicsScene, 
+    QGraphicsItem, 
+    QGraphicsLineItem, 
+    QGraphicsPathItem, 
+    QGraphicsPolygonItem, 
+    QWidget, 
+    QStyleOptionViewItem,
+    QLineEdit,
+    QStyle
+)
 
 # from ..core import GraphDataRole, GraphItemType, GraphMimeType, indexToPath, indexFromPath
 
@@ -137,7 +184,7 @@ class GraphView(QGraphicsView):
                     signal.connect(slot)
                 self._nodes_model_connections = nodes_model_connections
 
-            links_model_connections: list[tuple[pyqtBoundSignal, Callable]] = []
+            links_model_connections: list[tuple[Signal, Callable]] = []
             links_model_connections = [
                 # (link_model.modelAboutToBeReset,   self.handleLinksAboutToBeReset),
                 # (link_model.modelReset,            self.handleLinksReset),
@@ -817,11 +864,11 @@ class GraphView(QGraphicsView):
 
         assert self._links_model, "Model must be set before handling mouse release!"
 
-        def reset_linking_state() -> None:
+        def reset_linking_state() -> None: #TODO: consider removing/refactoring these functions
             self._interaction_mode = None
             self._interaction_payload = None
 
-        def destroy_draft_link(start_widget, end_widget) -> None:
+        def destroy_draft_link(start_widget, end_widget) -> None:  #TODO: consider removing/refactoring these functions
             if self._draft_link is not None:
                 if start_widget is None and end_widget is None:
                     if scene := self._draft_link.scene():
@@ -921,22 +968,18 @@ class GraphView(QGraphicsView):
             
         elif payload_index.model() is self._links_model.nodesModel():
             if drop_index is None or not drop_index.isValid():
+                # create and link new node at mousepos
                 nodes_model = self._links_model.nodesModel()
 
                 start_index = payload_index
                 start_widget = self._row_widget_manager.getWidget(start_index)
-                drop_scene_pos = self.mapToScene(QPoint(int(event.position().x()), int(event.position().y())))
-
                 # End draft interaction first; the final link widget is created via model insertion.
                 reset_linking_state()
                 destroy_draft_link(start_widget, None)
 
-                new_node_row = nodes_model.rowCount()
-                if nodes_model.insertRows(new_node_row, 1, QModelIndex()):
-                    new_node_index = nodes_model.index(new_node_row, 0, QModelIndex())
-                    new_node_widget = self._row_widget_manager.getWidget(new_node_index)
-                    if new_node_widget is not None:
-                        new_node_widget.setPos(drop_scene_pos)
+                drop_scene_pos = self.mapToScene(QPoint(int(event.position().x()), int(event.position().y())))
+                if self._create_new_node_at_position(drop_scene_pos):
+                    new_node_index = nodes_model.index(nodes_model.rowCount()-1, 0, QModelIndex())
 
                     if linking_direction == "forward":
                         self._links_model.add_link(start_index, new_node_index)
@@ -991,6 +1034,7 @@ class GraphView(QGraphicsView):
         nodes_model = self._links_model.nodesModel()
 
         if cell_index and nodes_model.flags(cell_index) & Qt.ItemFlag.ItemIsEditable:
+            # start editing the cell
             self._close_active_editor(commit=False)
             option = QStyleOptionViewItem()
             option.font = self.font()
@@ -1016,7 +1060,29 @@ class GraphView(QGraphicsView):
             editor.setFocus()
             editor.show()
             return
+        else:
+            scene_pos = self.mapToScene(QPoint(int(event.position().x()), int(event.position().y())))
+            self._create_new_node_at_position(scene_pos)
+
+            return
         super().mouseDoubleClickEvent(event)
+
+    def _create_new_node_at_position(self, scene_pos: QPointF) -> bool:
+        # create new node at position
+        if self._links_model is None:
+            return False
+        
+        nodes_model = self._links_model.nodesModel()
+        new_node_row = nodes_model.rowCount()
+        if nodes_model.insertRows(new_node_row, 1, QModelIndex()):
+            new_node_index = nodes_model.index(new_node_row, 0, QModelIndex())
+            new_node_widget = self._row_widget_manager.getWidget(new_node_index)
+            if new_node_widget is not None:
+                center = new_node_widget.boundingRect().center()
+                print(f"Placing new node at {scene_pos}, center offset {center}")
+                new_node_widget.setPos(scene_pos-center)
+            return True
+        return False
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if watched is self._active_editor:
@@ -1052,6 +1118,58 @@ class GraphView(QGraphicsView):
         if editor is None or editor_index is None or not editor_index.isValid():
             return
         self._delegate.setModelData(editor, QModelIndex(editor_index))
+
+    def layout_nodes_graphviz(
+        self,
+        orientation: Qt.Orientation = Qt.Orientation.Vertical,
+        layer_spacing: float = 70.0,
+        node_spacing: float = 120.0,
+    ):
+        # winget install Graphviz.Graphviz
+        """Layout nodes with Graphviz dot (via pydot); fallback to topo spacing."""
+        if self._links_model is None:
+            return
+        nodes_model = self._links_model.nodesModel()
+        if nodes_model is None:
+            return None
+        
+        import pydot
+
+        dot = pydot.Dot(graph_type="digraph", rankdir="TB")
+        for node_row in range(nodes_model.rowCount()):
+            node_name = f"N{node_row}"
+            node_index = nodes_model.index(node_row, 0)
+            inlet_count = nodes_model.rowCount(node_index)
+
+            ports = "|".join(f"<in{i}> in{i}" for i in range(inlet_count))
+            label = f"{{{node_name}|{{{ports}}}}}"
+
+            dot.add_node(pydot.Node(node_name, shape="record", label=label))
+
+        for link_row in range(self._links_model.rowCount()):
+            link_index = self._links_model.index(link_row, 0)
+            src_outlet = self._links_model.linkSource(link_index)
+            src_node = src_outlet
+            while src_node.parent().isValid():
+                src_node = src_node.parent()
+            dst_inlet = self._links_model.linkTarget(link_index)
+            dst_node = dst_inlet
+            while dst_node.parent().isValid():
+                dst_node = dst_node.parent()
+
+            src = f"N{src_node.row()}"
+            dst = f"N{dst_node.row()}"
+
+            dot.add_edge(pydot.Edge(src, f"{dst}:in{dst_inlet.row()}"))
+
+        dot_graph = dot.create_dot(prog="dot")
+
+        layout_graph = pydot.graph_from_dot_data(dot.create_dot().decode())[0]
+
+        for node in layout_graph.get_nodes():
+            name = node.get_name().strip('"')
+            pos = node.get_pos()
+            print(name, pos)
 
     def layout_nodes(
         self,
