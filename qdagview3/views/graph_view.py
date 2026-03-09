@@ -910,6 +910,30 @@ class GraphView(QGraphicsView):
                 return
             
         elif payload_index.model() is self._links_model.nodesModel():
+            if drop_index is None or not drop_index.isValid():
+                nodes_model = self._links_model.nodesModel()
+
+                start_index = payload_index
+                start_widget = self._row_widget_manager.getWidget(start_index)
+                drop_scene_pos = self.mapToScene(QPoint(int(event.position().x()), int(event.position().y())))
+
+                # End draft interaction first; the final link widget is created via model insertion.
+                reset_linking_state()
+                destroy_draft_link(start_widget, None)
+
+                new_node_row = nodes_model.rowCount()
+                if nodes_model.insertRows(new_node_row, 1, QModelIndex()):
+                    new_node_index = nodes_model.index(new_node_row, 0, QModelIndex())
+                    new_node_widget = self._row_widget_manager.getWidget(new_node_index)
+                    if new_node_widget is not None:
+                        new_node_widget.setPos(drop_scene_pos)
+
+                    if linking_direction == "forward":
+                        self._links_model.add_link(start_index, new_node_index)
+                    elif linking_direction == "backward":
+                        self._links_model.add_link(new_node_index, start_index)
+                return
+
             if linking_direction == "forward":
                 start_index = payload_index
                 start_widget = self._row_widget_manager.getWidget(start_index)
@@ -1019,36 +1043,89 @@ class GraphView(QGraphicsView):
             return
         self._delegate.setModelData(editor, QModelIndex(editor_index))
 
-    def layout_nodes(self, orientation:Qt.Orientation=Qt.Orientation.Vertical, scale=(75, 75)):
-        """Layout nodes using the delegate's layout algorithm."""
+    def layout_nodes(
+        self,
+        orientation: Qt.Orientation = Qt.Orientation.Vertical,
+        layer_spacing: float = 260.0,
+        node_spacing: float = 140.0,
+    ):
+        """Layout nodes with Graphviz dot (via pydot); fallback to topo spacing."""
         try:
             import networkx as nx
         except ImportError:
             warnings.warn("NetworkX is not installed. Please install it to use the layout feature.")
             return
-        
+
         if not self._links_model:
             return nx.DiGraph()
-        
+
         G = self._links_model.toNetworkX()
 
-        # Step 1: Assign layers manually or via algorithm
-        # For a DAG, we can use topological generations
-        for i, layer_nodes in enumerate(nx.topological_generations(G)):
-            for node in layer_nodes:
-                G.nodes[node]['layer'] = i
+        # Preferred: Graphviz dot via networkx + pydot.
+        try:
+            from networkx.drawing.nx_pydot import graphviz_layout
 
-        # Step 2: Use multipartite_layout
-        pos = nx.multipartite_layout(G, subset_key="layer")
+            pos = graphviz_layout(G, prog="dot")
 
-        for node_index, (x, y) in pos.items():
-            node_widget = self._row_widget_manager.getWidget(node_index)
-            if node_widget:
+            # Normalize dot coords into scene spacing units.
+            xs = [float(x) for x, _ in pos.values()]
+            ys = [float(y) for _, y in pos.values()]
+            min_x, max_x = (min(xs), max(xs)) if xs else (0.0, 0.0)
+            min_y, max_y = (min(ys), max(ys)) if ys else (0.0, 0.0)
+            span_x = max(max_x - min_x, 1.0)
+            span_y = max(max_y - min_y, 1.0)
+
+            # Estimate grid extents from topo layers.
+            layers = [list(layer) for layer in nx.topological_generations(G)]
+            layer_count = max(len(layers), 1)
+            max_nodes_in_layer = max((len(layer) for layer in layers), default=1)
+
+            for node, (x, y) in pos.items():
+                node_widget = self._row_widget_manager.getWidget(node)
+                if not node_widget:
+                    continue
+
+                norm_x = (float(x) - min_x) / span_x
+                norm_y = (float(y) - min_y) / span_y
+
+                px = norm_x * max(1, max_nodes_in_layer - 1) * float(node_spacing)
+                py = (1.0 - norm_y) * max(1, layer_count - 1) * float(layer_spacing)
+
                 if orientation == Qt.Orientation.Vertical:
-                    node_widget.setPos(y*scale[0], x*scale[1])  # Scale positions for better spacing
+                    node_widget.setPos(px, py)
                 else:
-                    node_widget.setPos(x*scale[0], y*scale[1])  # Scale positions for better spacing
+                    node_widget.setPos(py, px)
+            return
+        except ImportError:
+            warnings.warn("pydot/graphviz is not available, falling back to simple layered layout.")
+        except Exception as e:
+            warnings.warn(f"pydot/graphviz layout failed ({e}), falling back to simple layered layout.")
 
+        # Fallback: simple layers from DAG topology.
+        try:
+            layers = [list(layer) for layer in nx.topological_generations(G)]
+        except nx.NetworkXUnfeasible:
+            warnings.warn("Graph contains cycles; cannot use topological generations.")
+            return
+
+        for layer_idx, layer_nodes in enumerate(layers):
+            # stable order inside layer
+            ordered = sorted(layer_nodes, key=lambda idx: idx.row())
+            center_offset = (len(ordered) - 1) * 0.5 * node_spacing
+
+            for i, node_index in enumerate(ordered):
+                node_widget = self._row_widget_manager.getWidget(node_index)
+                if not node_widget:
+                    continue
+
+                primary = layer_idx * layer_spacing
+                secondary = i * node_spacing - center_offset
+
+                if orientation == Qt.Orientation.Vertical:
+                    node_widget.setPos(secondary, primary)   # x, y
+                else:
+                    node_widget.setPos(primary, secondary)   # x, y
+                    
     def isColumnHidden(self, column:int) -> bool:
         """Check if a column is hidden."""
         return self._is_column_hidden.get(column, False)
