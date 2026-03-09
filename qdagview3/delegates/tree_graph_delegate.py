@@ -51,7 +51,7 @@ class TreeGraphDelegate(AbstractGraphDelegate):
         widget.title_widget.setText(f"{index.data(Qt.ItemDataRole.DisplayRole)}")
         return widget
 
-    def destroyRowWidget(self, parent_widget: RowWidget|None, widget: RowWidget)->bool:
+    def destroyRowWidget(self, parent_widget: RowWidget|None, widget: RowWidget, index:QModelIndex)->bool:
         if not isinstance(parent_widget, (RowWidget, type(None))):
             raise TypeError("Parent widget must be a RowWidget or None")
         
@@ -74,7 +74,7 @@ class TreeGraphDelegate(AbstractGraphDelegate):
         parent_widget.insertCell(index.column(), cell)
         return cell
     
-    def destroyCellWidget(self, parent_widget: RowWidget, widget: CellWidget)->bool:
+    def destroyCellWidget(self, parent_widget: RowWidget, widget: CellWidget, index: QModelIndex)->bool:
         if not isinstance(parent_widget, RowWidget):
             raise TypeError("Parent widget must be a RowWidget")
         if not isinstance(widget, CellWidget):
@@ -111,7 +111,7 @@ class TreeGraphDelegate(AbstractGraphDelegate):
         line = QLineF(makeLineBetweenShapes(start_widget, end_widget))
         link_widget.setLine(line)
     
-    def destroyLinkWidget(self, link_widget: LinkWidget, source_widget:RowWidget|None, target_widget:RowWidget|None)->bool:
+    def destroyLinkWidget(self, link_widget: LinkWidget, index:QModelIndex|None, source_widget:RowWidget|None, target_widget:RowWidget|None)->bool:
         if not isinstance(source_widget, (QGraphicsItem, type(None))):
             raise TypeError(f"source_widget must be a QGraphicsItem or None, got {type(source_widget)} instead")
         if not isinstance(target_widget, (QGraphicsItem, type(None))):

@@ -42,7 +42,7 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
         ...
 
     @abstractmethod
-    def destroyRowWidget(self, parent_widget: QGraphicsScene, widget: RowWidgetT)->bool:
+    def destroyRowWidget(self, parent_widget: QGraphicsScene, widget: RowWidgetT, index:QModelIndex)->bool:
         ...
     
     @abstractmethod
@@ -50,7 +50,7 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
         ...
     
     @abstractmethod
-    def destroyCellWidget(self, parent_widget: RowWidgetT, widget: CellWidgetT)->bool:
+    def destroyCellWidget(self, parent_widget: RowWidgetT, widget: CellWidgetT, index:QModelIndex)->bool:
         ...
 
     @abstractmethod
@@ -62,7 +62,7 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
         ...
     
     @abstractmethod
-    def destroyLinkWidget(self, link_widget: LinkWidgetT, source_widget:RowWidgetT|None, target_widget:RowWidgetT|None)->bool:
+    def destroyLinkWidget(self, link_widget: LinkWidgetT, index:QModelIndex|None, source_widget:RowWidgetT|None, target_widget:RowWidgetT|None)->bool:
         ...
 
     @abstractmethod

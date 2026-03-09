@@ -209,7 +209,7 @@ class GraphView(QGraphicsView):
                 # This is a top-level node
                 row_widget = self._row_widget_manager.getWidget(row_index)
                 assert row_widget is not None, f"Failed to find widget for index: {row_index}"
-                self._delegate.destroyRowWidget(None, row_widget)
+                self._delegate.destroyRowWidget(None, row_widget, row_index)
             else:
                 # This is a child node, so we need to find the parent widget
                 parent_widget = self._row_widget_manager.getWidget(parent)
@@ -218,7 +218,7 @@ class GraphView(QGraphicsView):
                 assert row_widget is not None, f"Failed to find row widget for index: {row_index.row()}"
                 parent_widget = self._row_widget_manager.getWidget(parent)
                 assert parent_widget is not None, f"Failed to find parent widget for index: {parent.row()}"
-                self._delegate.destroyRowWidget(parent_widget, row_widget)
+                self._delegate.destroyRowWidget(parent_widget, row_widget, row_index)
             # First remove widgets for child nodes recursively
             children_count = nodes_model.rowCount(row_index)
             self._on_nodes_about_to_be_removed(row_index, 0, children_count - 1)
@@ -277,7 +277,7 @@ class GraphView(QGraphicsView):
                 assert cell_index.isValid(), f"Invalid cell index: {cell_index}"
                 if cell_widget := self._cell_widget_manager.getWidget(cell_index):
                     row_widget = self._row_widget_manager.getWidget(row_index)
-                    self._delegate.destroyCellWidget(row_widget, cell_widget)
+                    self._delegate.destroyCellWidget(row_widget, cell_widget, cell_index)
                     scene = self.scene()
                     assert scene is not None
                     scene.removeItem(cell_widget)
@@ -314,7 +314,7 @@ class GraphView(QGraphicsView):
             assert cell_index.isValid(), f"Invalid cell index: {cell_index}"
 
             if cell_widget := self._cell_widget_manager.getWidget(cell_index):
-                self._delegate.destroyCellWidget(row_widget, cell_widget)
+                self._delegate.destroyCellWidget(row_widget, cell_widget, cell_index)
                 self._cell_widget_manager.removeWidget(cell_index)
                 scene = self.scene()
                 assert scene is not None
@@ -357,7 +357,7 @@ class GraphView(QGraphicsView):
             target_index = self._links_model.linkTarget(link_index)
             source_widget = self._row_widget_manager.getWidget(source_index) if source_index.isValid() else None
             target_widget = self._row_widget_manager.getWidget(target_index) if target_index.isValid() else None
-            self._delegate.destroyLinkWidget(link_widget, source_widget, target_widget)
+            self._delegate.destroyLinkWidget(link_widget, link_index, source_widget, target_widget)
             self._link_widget_manager.removeWidget(link_index)
             scene = self.scene()
             assert scene is not None
@@ -533,6 +533,11 @@ class GraphView(QGraphicsView):
         assert scene is not None
         scene.selectionChanged.connect(self._sync_node_selection_model)
 
+        # initialize selection state in the view to match the selection model
+        if self._nodes_selection_model:
+            selected = self._nodes_selection_model.selection()
+            self._on_nodes_selection_changed(selected, QItemSelection())
+
     def nodesSelectionModel(self) -> QItemSelectionModel | None:
         """
         Get the current selection model for the graph view.
@@ -569,6 +574,11 @@ class GraphView(QGraphicsView):
         scene = self.scene()
         assert scene is not None
         scene.selectionChanged.connect(self._sync_link_selection_model)
+
+        # initialize selection state in the view to match the selection model
+        if self._links_selection_model:
+            selected = self._links_selection_model.selection()
+            self._on_links_selection_changed(selected, QItemSelection())
 
     def linksSelectionModel(self) -> QItemSelectionModel | None:
         return self._links_selection_model
@@ -817,7 +827,7 @@ class GraphView(QGraphicsView):
                     if scene := self._draft_link.scene():
                         scene.removeItem(self._draft_link)
                 else:
-                    self._delegate.destroyLinkWidget(self._draft_link, start_widget, end_widget)
+                    self._delegate.destroyLinkWidget(self._draft_link, None, start_widget, end_widget)
                     scene = self.scene()
                     assert scene is not None
                     scene.removeItem(self._draft_link)
@@ -1046,8 +1056,8 @@ class GraphView(QGraphicsView):
     def layout_nodes(
         self,
         orientation: Qt.Orientation = Qt.Orientation.Vertical,
-        layer_spacing: float = 260.0,
-        node_spacing: float = 140.0,
+        layer_spacing: float = 70.0,
+        node_spacing: float = 120.0,
     ):
         """Layout nodes with Graphviz dot (via pydot); fallback to topo spacing."""
         try:
