@@ -298,8 +298,9 @@ class GraphView(QGraphicsView):
                 cell_widget = self._delegate.createCellWidget(row_widget, cell_index)
                 self._cell_widget_manager.insertWidget(cell_index, cell_widget)
 
-                if self.isColumnHidden(column):
-                    cell_widget.setVisible(True)
+                print(f"Column inserted: {column}, setting cell widget visibility to: {not self.isColumnHidden(column)}")
+                cell_widget.setVisible(not self.isColumnHidden(column))
+                
 
 
                 scene = self.scene()
@@ -343,6 +344,8 @@ class GraphView(QGraphicsView):
             assert cell_index.isValid(), f"Invalid cell index: {cell_index}"
 
             cell_widget = self._delegate.createCellWidget(row_widget, cell_index)
+            print(f"Column inserted: {column}, setting cell widget visibility to: {not self.isColumnHidden(column)}")
+            cell_widget.setVisible(not self.isColumnHidden(column))
             self._cell_widget_manager.insertWidget(cell_index, cell_widget)
             scene = self.scene()
             assert scene is not None
@@ -1261,11 +1264,15 @@ class GraphView(QGraphicsView):
     def setColumnHidden(self, column:int, hidden:bool):
         """Called when a column is hidden or shown. Override this method to implement custom logic."""
         self._is_column_hidden[column] = hidden
+
+        # update cells visibility in the column
         if self._links_model is None:
             return
+        
         nodes_model = self._links_model.nodesModel()
         if nodes_model is None:
             return
+        
         for row in range(self._links_model.nodesModel().rowCount()):
             cell_index = self._links_model.nodesModel().index(row, column)
             row_index = cell_index.siblingAtColumn(0)
