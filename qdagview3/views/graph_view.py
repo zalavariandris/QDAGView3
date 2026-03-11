@@ -386,7 +386,7 @@ class GraphView(QGraphicsView):
             target_widget = self._row_widget_manager.getWidget(target_index)
             link_widget = self._delegate.createLinkWidget(link_index, source_widget, target_widget)
             self._link_widget_manager.insertWidget(link_index, link_widget)
-            self._delegate.moveLinkWidget(link_widget, source_widget, target_widget)
+            self._delegate.moveLinkWidget(link_index, link_widget, source_widget, target_widget)
             scene = self.scene()
             assert scene is not None
             scene.addItem(link_widget)
@@ -432,7 +432,7 @@ class GraphView(QGraphicsView):
             assert source_widget is not None, f"Failed to find source widget for index: {source_index}"
             assert target_widget is not None, f"Failed to find target widget for index: {target_index}"
             assert link_widget is not None, f"Failed to find link widget for index: {link_index}"
-            self._delegate.moveLinkWidget(link_widget, source_widget, target_widget)
+            self._delegate.moveLinkWidget(link_index, link_widget, source_widget, target_widget)
 
     ## Index lookup
     def rowAt(self, point:QPoint, filter_type:GraphItemType|None=None) -> QModelIndex|None:
@@ -478,7 +478,7 @@ class GraphView(QGraphicsView):
                 target_index = self._links_model.linkTarget(link_index)
                 target_widget = self._row_widget_manager.getWidget(target_index)
                 if source_widget and target_widget:
-                    self._delegate.moveLinkWidget(link_widget, source_widget, target_widget)
+                    self._delegate.moveLinkWidget(link_index, link_widget, source_widget, target_widget)
 
     def _update_link_position(self, link_widget:LinkWidgetStraight, source_widget:QGraphicsItem|None=None, target_widget:QGraphicsItem|None=None):
         # Compute the link geometry in the link widget's local coordinates.
@@ -821,40 +821,41 @@ class GraphView(QGraphicsView):
         match self._interaction_mode:
             case "LINKING":
                 payload_index, payload_direction = self._interaction_payload
+                link_index = payload_index
                 if payload_index.model() is self._links_model:
                     if payload_direction == "forward":
-                        link_widget = self._link_widget_manager.getWidget(payload_index)
-                        source_index = self._links_model.linkSource(payload_index)
+                        link_widget = self._link_widget_manager.getWidget(link_index)
+                        source_index = self._links_model.linkSource(link_index)
                         source_widget = self._row_widget_manager.getWidget(source_index) if source_index is not None else None
                         
-                        self._delegate.moveLinkWidget(link_widget, source_widget, scene_pos)
+                        self._delegate.moveLinkWidget(link_index, link_widget, source_widget, scene_pos)
                     elif payload_direction == "backward":
-                        link_widget = self._link_widget_manager.getWidget(payload_index)
-                        target_index = self._links_model.linkTarget(payload_index)
+                        link_widget = self._link_widget_manager.getWidget(link_index)
+                        target_index = self._links_model.linkTarget(link_index)
                         target_widget = self._row_widget_manager.getWidget(target_index) if target_index is not None else None
 
-                        self._delegate.moveLinkWidget(link_widget, scene_pos, target_widget)
+                        self._delegate.moveLinkWidget(link_index, link_widget, scene_pos, target_widget)
 
-                elif payload_index.model() is self._links_model.nodesModel():
+                elif link_index.model() is self._links_model.nodesModel():
                     if payload_direction == "forward":
                         end_index = self.rowAt(view_pos)  # Ensure the index is updated
                         end_widget = self._row_widget_manager.getWidget(end_index) #TODO: consider using invalid QModelIndex instead of None?
                         
-                        start_widget = self._row_widget_manager.getWidget(payload_index)
-                        if end_index and end_index.isValid() and self._delegate.canAcceptLink(payload_index, end_index, start_widget, end_widget, event): # TODO: add option for snap behaviour
-                            self._delegate.moveLinkWidget(self._draft_link, start_widget, end_widget)
+                        start_widget = self._row_widget_manager.getWidget(link_index)
+                        if end_index and end_index.isValid() and self._delegate.canAcceptLink(link_index, end_index, start_widget, end_widget, event): # TODO: add option for snap behaviour
+                            self._delegate.moveLinkWidget(link_index, self._draft_link, start_widget, end_widget)
                         else:
-                            self._delegate.moveLinkWidget(self._draft_link, start_widget, scene_pos)
+                            self._delegate.moveLinkWidget(link_index, self._draft_link, start_widget, scene_pos)
 
                     elif payload_direction == "backward":
                         end_index = self.rowAt(view_pos)  # Ensure the index is updated
                         end_widget = self._row_widget_manager.getWidget(end_index) #TODO: consider using invalid QModelIndex instead of None?
                         
-                        start_widget = self._row_widget_manager.getWidget(payload_index)
-                        if end_index and end_index.isValid() and self._delegate.canAcceptLink(end_index, payload_index, end_widget, start_widget, event): # TODO: add option for snap behaviour
-                            self._delegate.moveLinkWidget(self._draft_link, end_widget, start_widget)
+                        start_widget = self._row_widget_manager.getWidget(link_index)
+                        if end_index and end_index.isValid() and self._delegate.canAcceptLink(end_index, link_index, end_widget, start_widget, event): # TODO: add option for snap behaviour
+                            self._delegate.moveLinkWidget(link_index, self._draft_link, end_widget, start_widget)
                         else:
-                            self._delegate.moveLinkWidget(self._draft_link, scene_pos, start_widget)
+                            self._delegate.moveLinkWidget(link_index, self._draft_link, scene_pos, start_widget)
 
 
             case _:
@@ -984,10 +985,11 @@ class GraphView(QGraphicsView):
                 if self._create_new_node_at_position(drop_scene_pos):
                     new_node_index = nodes_model.index(nodes_model.rowCount()-1, 0, QModelIndex())
 
+                    
                     if linking_direction == "forward":
-                        self._links_model.add_link(start_index, new_node_index)
+                        self._links_model.insert_link(start_index, new_node_index, self._links_model.rowCount())
                     elif linking_direction == "backward":
-                        self._links_model.add_link(new_node_index, start_index)
+                        self._links_model.insert_link(new_node_index, start_index, self._links_model.rowCount())
                 return
 
             if linking_direction == "forward":
@@ -1003,7 +1005,7 @@ class GraphView(QGraphicsView):
                 destroy_draft_link(start_widget, end_widget)
                 reset_linking_state()
                 if can_link:
-                    self._links_model.add_link(start_index, end_index)
+                    self._links_model.insert_link(start_index, end_index, self._links_model.rowCount())
                 return
             elif linking_direction == "backward":
                 end_index = payload_index
@@ -1018,7 +1020,7 @@ class GraphView(QGraphicsView):
                 destroy_draft_link(start_widget, end_widget)
                 reset_linking_state()
                 if can_link:
-                    self._links_model.add_link(start_index, end_index)
+                    self._links_model.insert_link(start_index, end_index, self._links_model.rowCount())
                 return
             else:
                 reset_linking_state()

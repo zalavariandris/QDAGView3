@@ -65,11 +65,18 @@ class LinkModel(QAbstractItemModel):
         def node_display_text(node_index: QPersistentModelIndex) -> str:
             if not node_index.isValid():
                 return "<invalid>"
-            value = node_index.data(Qt.ItemDataRole.DisplayRole)
-            if value:
-                return str(value)
-            else:
-                return f"row={node_index.row()}"
+            
+            dotted_path = []
+            current = node_index
+            while current.isValid():
+                value = current.data(Qt.ItemDataRole.DisplayRole)
+                if value:
+                    dotted_path.append(str(value))
+                else:
+                    dotted_path.append(f"row={current.row()}")
+                current = current.parent()
+
+            return ".".join(reversed(dotted_path))
             
         link: LinkData = self._links[index.row()]
         match index.column():
@@ -163,8 +170,8 @@ class LinkModel(QAbstractItemModel):
         self._nodes_model = None
         self.clear_links()
 
-    def add_link(self, source: QModelIndex, target: QModelIndex) -> bool:
-        """Append a link and return its row index.
+    def insert_link(self, source: QModelIndex, target: QModelIndex, pos: int) -> bool:
+        """Insert a link at the specified position and return its row index.
 
         Both source and target are normalized to column 0 before persisting.
         """
@@ -181,7 +188,8 @@ class LinkModel(QAbstractItemModel):
 
         row = len(self._links)
         self.beginInsertRows(QModelIndex(), row, row)
-        self._links.append(
+        self._links.insert(
+            pos,
             LinkData(
                 source=QPersistentModelIndex(source_col0),
                 target=QPersistentModelIndex(target_col0),
@@ -293,6 +301,35 @@ class LinkModel(QAbstractItemModel):
 
     def _is_valid_node_index(self, index: QModelIndex) -> bool:
         return index.isValid() and self._nodes_model is not None and index.model() is self._nodes_model
+
+    #@override
+    def moveRows(self, sourceParent:QModelIndex, sourceRow:int, count:int, destinationParent:QModelIndex, destinationChild:int) -> bool:
+        """Override moveRows to update link indexes when nodes are moved within the nodes model."""
+
+        if sourceParent.isValid() or destinationParent.isValid():
+            # links model is a lfat structure. there are not supposed to be any parent-child relationships.
+            return False
+        
+        # Validate source ranges
+        if not (0 <= sourceRow < len(self._links)) or not (0 <= sourceRow + count - 1 < len(self._links)):
+            return False
+        
+        # Validate destination ranges
+        if not (0 <= destinationChild <= len(self._links)):
+            return False
+        
+        # Perform the move
+        self.beginMoveRows(sourceParent, sourceRow, sourceRow + count - 1, destinationParent, destinationChild)
+        left = self._links[:sourceRow] 
+        middle = self._links[sourceRow : sourceRow + count]
+        right = self._links[sourceRow + count:]
+
+        self._links = left + right  # remove the moved links from the list temporarily
+        self._links[destinationChild:destinationChild] = middle # insert the moved links at the destination
+
+        self.endMoveRows()
+        
+        return True
 
     @staticmethod
     def _is_in_removed_subtree(index: QModelIndex, parent: QModelIndex, first: int, last: int) -> bool:

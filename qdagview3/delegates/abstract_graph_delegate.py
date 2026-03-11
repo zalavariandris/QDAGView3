@@ -58,7 +58,7 @@ class AbstractGraphDelegate(QObject, ABC, metaclass=QABCMeta):
         ...
     
     @abstractmethod
-    def moveLinkWidget(self, link_widget: LinkWidgetT, start_widget: QGraphicsItem|QPointF, end_widget: QGraphicsItem|QPointF):
+    def moveLinkWidget(self, link_index:QModelIndex, link_widget: LinkWidgetT, start_widget: QGraphicsItem|QPointF, end_widget: QGraphicsItem|QPointF):
         ...
     
     @abstractmethod
