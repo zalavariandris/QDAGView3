@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
+import warnings
 
 from qtpy.QtCore import QAbstractItemModel, QModelIndex, QObject, QPersistentModelIndex, Qt
 from qtpy.QtCore import Signal
@@ -257,6 +258,12 @@ class LinkModel(QAbstractItemModel):
     def remove_links(self, rows: list[int]) -> int:
         """Remove multiple links at once, grouping consecutive rows into ranges."""
 
+        assert all(isinstance(r, int) for r in rows), f"All rows must be integers, got: {rows}"
+
+        if not all(0 <= r < len(self._links) for r in rows):
+            warnings.warn(f"Some rows are out of range and will be ignored. Valid row indices are between 0 and {len(self._links)-1}, got: {rows}")
+            return 0
+
         # - group selected rows into continuous ranges to minimize number of removeRows calls -
         continous_selected_rows:List[List[int]] = []
         for row in sorted(rows):
@@ -268,7 +275,7 @@ class LinkModel(QAbstractItemModel):
         for rows in reversed(continous_selected_rows):
             self.removeRows(rows[0], len(rows), QModelIndex())
 
-    def linkSource(self, link_index: QModelIndex) -> QModelIndex:
+    def linkSource(self, link_index: QModelIndex) -> QModelIndex: #TODO: consider using rows instead of indexes for identifying links. either way, make it consistent
         assert isinstance(link_index, QModelIndex), f"link_index must be a QModelIndex instance, got {type(link_index)} instead"
         assert link_index.isValid(), f"link_index must be valid, got: {link_index}"
         assert link_index.column() == 0, f"link_index must be in column 0, got column {link_index.column()} instead"
@@ -351,7 +358,10 @@ class LinkModel(QAbstractItemModel):
         right = self._links[sourceRow + count:]
 
         self._links = left + right  # remove the moved links from the list temporarily
-        self._links[destinationChild:destinationChild] = middle # insert the moved links at the destination
+        # destinationChild is a position in the original list; after removal
+        # indices beyond sourceRow have shifted down by count.
+        insert_pos = destinationChild - count if destinationChild > sourceRow else destinationChild
+        self._links[insert_pos:insert_pos] = middle
 
         self.endMoveRows()
         

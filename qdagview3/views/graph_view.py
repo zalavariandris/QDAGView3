@@ -398,8 +398,47 @@ class GraphView(QGraphicsView):
         nodes_model = self._links_model.nodesModel()
         assert nodes_model is not None, "Link model must have a valid nodes model"
 
-        for row in range(destination_row, destination_row + (source_end - source_start) + 1):
+        # Note:
+        # link's visual position, might depend on the order of the links.
+        # here we are collecting all neighbour links that might be affected by the move,
+        # and then we call the delegate to update their visual positions. 
+
+        # Compute the actual new positions of the moved rows.
+        # rowsMoved is emitted *after* the move, so source_start/source_end
+        # are stale.  destination_row is the "before-removal" target; the
+        # real landing position depends on whether we moved up or down.
+        count = source_end - source_start + 1
+        if destination_row <= source_start:
+            new_first = destination_row
+        else:
+            new_first = destination_row - count
+
+        # collect neighbour links
+        all_outlets = []
+        all_inlets = []
+        for row in range(new_first, new_first + count):
             link_index = self._links_model.index(row, 0, destination_parent)
+            assert link_index.isValid(), f"Invalid link index: {link_index}"
+            source_outlet = self._links_model.linkSource(link_index)
+            target_inlet = self._links_model.linkTarget(link_index)
+            if source_outlet.isValid():
+                all_outlets.append(source_outlet)
+            if target_inlet.isValid():
+                all_inlets.append(target_inlet)
+        
+        # collect all links connected to the above sockets
+        link_indexes_to_update = set()
+        for outlet in all_outlets:
+            link_indexes = self._links_model.linksConnectedTo(outlet)
+            link_indexes_to_update.update(link_indexes)
+        for inlet in all_inlets:
+            link_indexes = self._links_model.linksConnectedTo(inlet)
+            link_indexes_to_update.update(link_indexes)
+
+        # for row in range(destination_row, destination_row + (source_end - source_start) + 1):
+            # link_index = self._links_model.index(row, 0, destination_parent)
+
+        for link_index in link_indexes_to_update:
             assert link_index.isValid(), f"Invalid link index: {link_index}"
             link_widget = self._link_widget_manager.getWidget(link_index)
             if link_widget is None:
