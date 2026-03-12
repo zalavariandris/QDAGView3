@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List, Tuple
 
 from qtpy.QtCore import QAbstractItemModel, QModelIndex, QObject, QPersistentModelIndex, Qt
 from qtpy.QtCore import Signal
@@ -229,18 +229,44 @@ class LinkModel(QAbstractItemModel):
         self.endRemoveRows()
         return True
 
+    # def remove_links(self, rows: list[int]) -> int:
+    #     """Remove multiple links at once, grouping consecutive rows into ranges."""
+    #     if not rows:
+    #         return 0
+    #     removed = 0
+    #     # Process ranges in reverse order so row indices stay valid
+    #     for r in reversed(list(group_consecutive_numbers(sorted(rows)))):
+    #         self.beginRemoveRows(QModelIndex(), r.start, r.stop - 1)
+    #         del self._links[r.start:r.stop]
+    #         self.endRemoveRows()
+    #         removed += len(r)
+    #     return removed
+    
+    def removeRows(self, row: int, count: int, parent: QModelIndex = QModelIndex()) -> bool:
+        if parent.isValid():
+            return False
+        
+        if not (0 <= row < len(self._links)) or not (0 <= row + count - 1 < len(self._links)):
+            return False
+
+        self.beginRemoveRows(parent, row, row + count - 1)
+        del self._links[row:row + count]
+        self.endRemoveRows()
+        return True
+    
     def remove_links(self, rows: list[int]) -> int:
         """Remove multiple links at once, grouping consecutive rows into ranges."""
-        if not rows:
-            return 0
-        removed = 0
-        # Process ranges in reverse order so row indices stay valid
-        for r in reversed(list(group_consecutive_numbers(sorted(rows)))):
-            self.beginRemoveRows(QModelIndex(), r.start, r.stop - 1)
-            del self._links[r.start:r.stop]
-            self.endRemoveRows()
-            removed += len(r)
-        return removed
+
+        # - group selected rows into continuous ranges to minimize number of removeRows calls -
+        continous_selected_rows:List[List[int]] = []
+        for row in sorted(rows):
+            if not continous_selected_rows or row != continous_selected_rows[-1][-1] + 1:
+                continous_selected_rows.append([row])
+            else:
+                continous_selected_rows[-1].append(row)
+
+        for rows in reversed(continous_selected_rows):
+            self.removeRows(rows[0], len(rows), QModelIndex())
 
     def linkSource(self, link_index: QModelIndex) -> QModelIndex:
         assert isinstance(link_index, QModelIndex), f"link_index must be a QModelIndex instance, got {type(link_index)} instead"

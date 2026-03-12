@@ -107,7 +107,7 @@ class GraphView(QGraphicsView):
 
 
         assert isinstance(delegate, AbstractGraphDelegate) or delegate is None, f"Invalid delegate, got: {delegate}"   
-        self._delegate = delegate if delegate else TreeGraphDelegate()
+        self._delegate:AbstractGraphDelegate = delegate if delegate else TreeGraphDelegate()
         self._delegate.portPositionChanged.connect(self._on_port_position_changed)
 
         ## - models -
@@ -184,13 +184,14 @@ class GraphView(QGraphicsView):
                     signal.connect(slot)
                 self._nodes_model_connections = nodes_model_connections
 
-            links_model_connections: list[tuple[Signal, Callable]] = []
+            links_model_connections = []
             links_model_connections = [
                 # (link_model.modelAboutToBeReset,   self.handleLinksAboutToBeReset),
                 # (link_model.modelReset,            self.handleLinksReset),
                 # (link_model.rowsAboutToBeInserted, self.handleLinksAboutToBeInserted),
                 (link_model.rowsInserted,          self._on_links_inserted),
                 (link_model.rowsAboutToBeRemoved,  self._on_links_about_to_be_removed),
+                (link_model.rowsMoved,             self._on_link_rows_moved), # Note: we need to update the link positions when links are moved, since the source and target indexes may change. We can treat this the same as a data change, since we need to update the link positions in both cases.
                 # (link_model.rowsRemoved,           self.handleLinksRemoved),
                 (link_model.dataChanged,           self._on_links_data_changed),
             ]
@@ -390,6 +391,28 @@ class GraphView(QGraphicsView):
             scene = self.scene()
             assert scene is not None
             scene.addItem(link_widget)
+
+    def _on_link_rows_moved(self, source_parent:QModelIndex, source_start:int, source_end:int, destination_parent:QModelIndex, destination_row:int):
+        # Note: we can treat this the same as a data change, since we need to update the link positions in both cases.
+        assert self._links_model, "Model must be set before handling link moves!"
+        nodes_model = self._links_model.nodesModel()
+        assert nodes_model is not None, "Link model must have a valid nodes model"
+
+        for row in range(destination_row, destination_row + (source_end - source_start) + 1):
+            link_index = self._links_model.index(row, 0, destination_parent)
+            assert link_index.isValid(), f"Invalid link index: {link_index}"
+            link_widget = self._link_widget_manager.getWidget(link_index)
+            if link_widget is None:
+                continue
+
+            source_index = self._links_model.linkSource(link_index)
+            target_index = self._links_model.linkTarget(link_index)
+            source_widget = self._row_widget_manager.getWidget(source_index) if source_index.isValid() else None
+            target_widget = self._row_widget_manager.getWidget(target_index) if target_index.isValid() else None
+            if link_widget and source_widget and target_widget:
+                self._delegate.moveLinkWidget(link_index, link_widget, source_widget, target_widget)
+            else:
+                pass
 
     def _on_links_about_to_be_removed(self, parent:QModelIndex, first: int, last: int):
         assert self._links_model, "Model must be set before handling node insertions!"

@@ -102,7 +102,7 @@ class TreeGraphDelegate(AbstractGraphDelegate):
         link_widget = LinkWidget()
         return link_widget
     
-    def moveLinkWidget(self, link_widget: LinkWidget, start_widget: QGraphicsItem|QPointF, end_widget: QGraphicsItem|QPointF):
+    def moveLinkWidget(self, link_index:QModelIndex, link_widget: LinkWidget, start_widget: QGraphicsItem|QPointF, end_widget: QGraphicsItem|QPointF):
         if not isinstance(link_widget, LinkWidget):
             raise TypeError("Widget must be a LinkWidget")
         

@@ -32,7 +32,7 @@ def test_replace_nodes_model():
     assert n2.isValid()
 
     link_model = LinkModel(nodes_model)
-    link_model.add_link(n1, n2)
+    link_model.insert_link(n1, n2, 0)
     assert link_model.rowCount() == 1
 
     # replace nodes model
@@ -69,7 +69,7 @@ def test_add_remove_link(qapp):
     spy_removed = QSignalSpy(link_model.rowsRemoved)
 
     # add link
-    link_model.add_link(n1, n2)
+    link_model.insert_link(n1, n2, 0)
     assert link_model.rowCount() == 1
     assert link_model.data(link_model.index(0, 0), Qt.ItemDataRole.EditRole) == n1
     assert link_model.data(link_model.index(0, 1), Qt.ItemDataRole.EditRole) == n2
@@ -98,8 +98,8 @@ def test_remove_connected_node():
     n3 = nodes_model.index(2, 0)
 
     link_model = LinkModel(nodes_model)
-    link_model.add_link(n1, n2)
-    link_model.add_link(n2, n3)
+    link_model.insert_link(n1, n2, 0)
+    link_model.insert_link(n2, n3, 1)
     assert link_model.rowCount() == 2
 
     # test removing a node that has links removes all connected links
