@@ -821,8 +821,9 @@ class GraphView(QGraphicsView):
         match self._interaction_mode:
             case "LINKING":
                 payload_index, payload_direction = self._interaction_payload
-                link_index = payload_index
+                
                 if payload_index.model() is self._links_model:
+                    link_index = payload_index
                     if payload_direction == "forward":
                         link_widget = self._link_widget_manager.getWidget(link_index)
                         source_index = self._links_model.linkSource(link_index)
@@ -836,26 +837,26 @@ class GraphView(QGraphicsView):
 
                         self._delegate.moveLinkWidget(link_index, link_widget, scene_pos, target_widget)
 
-                elif link_index.model() is self._links_model.nodesModel():
+                elif payload_index.model() is self._links_model.nodesModel():
                     if payload_direction == "forward":
                         end_index = self.rowAt(view_pos)  # Ensure the index is updated
                         end_widget = self._row_widget_manager.getWidget(end_index) #TODO: consider using invalid QModelIndex instead of None?
                         
-                        start_widget = self._row_widget_manager.getWidget(link_index)
-                        if end_index and end_index.isValid() and self._delegate.canAcceptLink(link_index, end_index, start_widget, end_widget, event): # TODO: add option for snap behaviour
-                            self._delegate.moveLinkWidget(link_index, self._draft_link, start_widget, end_widget)
+                        start_widget = self._row_widget_manager.getWidget(payload_index)
+                        if end_index and end_index.isValid() and self._delegate.canAcceptLink(payload_index, end_index, start_widget, end_widget, event): # TODO: add option for snap behaviour
+                            self._delegate.moveLinkWidget(None, self._draft_link, start_widget, end_widget)
                         else:
-                            self._delegate.moveLinkWidget(link_index, self._draft_link, start_widget, scene_pos)
+                            self._delegate.moveLinkWidget(None, self._draft_link, start_widget, scene_pos)
 
                     elif payload_direction == "backward":
                         end_index = self.rowAt(view_pos)  # Ensure the index is updated
                         end_widget = self._row_widget_manager.getWidget(end_index) #TODO: consider using invalid QModelIndex instead of None?
                         
-                        start_widget = self._row_widget_manager.getWidget(link_index)
-                        if end_index and end_index.isValid() and self._delegate.canAcceptLink(end_index, link_index, end_widget, start_widget, event): # TODO: add option for snap behaviour
-                            self._delegate.moveLinkWidget(link_index, self._draft_link, end_widget, start_widget)
+                        start_widget = self._row_widget_manager.getWidget(payload_index)
+                        if end_index and end_index.isValid() and self._delegate.canAcceptLink(end_index, payload_index, end_widget, start_widget, event): # TODO: add option for snap behaviour
+                            self._delegate.moveLinkWidget(None, self._draft_link, end_widget, start_widget)
                         else:
-                            self._delegate.moveLinkWidget(link_index, self._draft_link, scene_pos, start_widget)
+                            self._delegate.moveLinkWidget(None, self._draft_link, scene_pos, start_widget)
 
 
             case _:
